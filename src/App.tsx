@@ -1,0 +1,72 @@
+import { useEffect, useState } from 'react';
+import { Viewport } from './viewer/Viewport';
+import { Toolbar } from './ui/Toolbar';
+import { InfoPanel } from './ui/panels/InfoPanel';
+import { DisplayPanel } from './ui/panels/DisplayPanel';
+import { TransformPanel } from './ui/panels/TransformPanel';
+import { ScanSetupDialog } from './ui/ScanSetupDialog';
+import { StatusBar } from './ui/StatusBar';
+import { useKeyboardShortcuts } from './ui/useKeyboardShortcuts';
+import { openAnyFile } from './state/fileOpen';
+import { useStore } from './state/store';
+
+export default function App() {
+  const hasDoc = useStore((s) => !!s.doc);
+  const [dragOver, setDragOver] = useState(false);
+  useKeyboardShortcuts();
+
+  useEffect(() => {
+    const prevent = (e: DragEvent) => e.preventDefault();
+    window.addEventListener('dragover', prevent);
+    window.addEventListener('drop', prevent);
+    return () => {
+      window.removeEventListener('dragover', prevent);
+      window.removeEventListener('drop', prevent);
+    };
+  }, []);
+
+  return (
+    <div
+      className="app"
+      onDragEnter={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragOver={(e) => e.preventDefault()}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const f = e.dataTransfer.files?.[0];
+        if (f) void openAnyFile(f);
+      }}
+    >
+      <Toolbar />
+      <div className="main">
+        <aside className="sidebar left">
+          {hasDoc ? (
+            <>
+              <InfoPanel />
+              <DisplayPanel />
+              <TransformPanel />
+            </>
+          ) : (
+            <div className="empty-hint">
+              <h3>No model loaded</h3>
+              <p>Drop an STL file anywhere, use <b>Open…</b>, or pick one of the <b>Samples</b>.</p>
+              <p className="hint">Units are millimetres. Binary and ASCII STL are supported.</p>
+            </div>
+          )}
+        </aside>
+        <div className="viewport">
+          <Viewport />
+          {dragOver && <div className="drop-overlay">Drop STL to open</div>}
+        </div>
+      </div>
+      <StatusBar />
+      <ScanSetupDialog />
+    </div>
+  );
+}
