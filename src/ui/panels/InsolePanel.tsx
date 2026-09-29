@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { SIDE_LABEL } from '../../core/landmarks/definitions';
 import {
-  HEEL_BASE_LABEL, INSOLE_TYPE_LABEL, METATARSALS, MORTONS_LABEL, RANGES, UK_SIZES, WEDGE_SIDE_LABEL, WEDGE_TYPE_LABEL, insoleLengthMm,
-  type HeelBaseWidth, type InsoleParams, type InsoleType, type MortonsExtension, type Range, type WedgeSide, type WedgeType,
+  HEEL_BASE_LABEL, INSOLE_TYPE_LABEL, METATARSALS, MORTONS_LABEL, MT_BAR_COVERAGE_LABEL, MT_BAR_PATH_LABEL, RANGES, UK_SIZES, WEDGE_SIDE_LABEL, WEDGE_TYPE_LABEL, insoleLengthMm,
+  type HeelBaseWidth, type InsoleParams, type InsoleType, type MortonsExtension, type MtBarCoverage, type MtBarPath, type Range, type WedgeSide, type WedgeType,
 } from '../../core/insole/params';
 import {
   exportInsoleStl, insoleGesture, insoleLandmarks, setFootArch, setInsoleEnabled, setInsoleType, updateInsole,
@@ -129,7 +129,8 @@ function ToggleField({ label, checked, onChange, children, testId }: { label: st
 // --- panel ------------------------------------------------------------------------------
 
 /** Arch adjustment on the FOOT: slider commits when released (one mesh edit, undoable). */
-function FootArchField({ value, disabled }: { value: number; disabled: boolean }) {
+function FootArchField({ value, disabledReason }: { value: number; disabledReason: string | null }) {
+  const disabled = !!disabledReason;
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   const r = RANGES.footArch;
@@ -155,9 +156,8 @@ function FootArchField({ value, disabled }: { value: number; disabled: boolean }
       </div>
       <div className="slider-scale"><span>{r.min} lower</span><span>raise {r.max}</span></div>
       <div className="hint">
-        {disabled
-          ? 'Set the base plane first.'
-          : 'Raises (+) or lowers (−) the medial arch of the foot scan itself; the insole follows the modified foot.'}
+        {disabledReason ??
+          'Raises (+) or lowers (−) the medial arch of the foot scan itself, only between the arch start (AS) and arch end (AE) landmarks; the insole follows the modified foot.'}
       </div>
     </Field>
   );
@@ -206,7 +206,23 @@ export function InsolePanel() {
             <button className="small" onClick={() => useStore.setState({ rightTab: 'landmarks' })}>Place landmarks…</button>
           )}
         </Field>
-        <FootArchField value={doc.footArchAdjust ?? 0} disabled={!doc.basePlaneLocked} />
+        <Field label="Arch landmarks (for the arch adjustment)">
+          <ul className="check-list">
+            {([['archStart', 'Medial arch – start (AS)'], ['archPeak', 'Medial arch – peak (AR, optional)'], ['archEnd', 'Medial arch – end (AE)']] as const).map(([id, n]) => (
+              <li key={id} className={doc.landmarks[id] ? '' : 'todo'}>{n}</li>
+            ))}
+          </ul>
+        </Field>
+        <FootArchField
+          value={doc.footArchAdjust ?? 0}
+          disabledReason={
+            !doc.basePlaneLocked
+              ? 'Set the base plane first.'
+              : !doc.landmarks.archStart || !doc.landmarks.archEnd
+                ? 'Place the arch start (AS) and arch end (AE) landmarks – the arch is only changed between them.'
+                : null
+          }
+        />
       </Panel>
 
       <Panel title="2 · Insole type">
@@ -260,9 +276,15 @@ export function InsolePanel() {
           <ToggleField label="Plantar fascia groove" checked={p.fasciaGroove.enabled} onChange={toggle('Fascia groove', (q, v) => ({ ...q, fasciaGroove: { ...q.fasciaGroove, enabled: v } }))} testId="fascia">
             <SliderField label="Fascia groove depth" range={RANGES.fasciaGrooveDepth} value={p.fasciaGroove.depth} set={(q, v) => ({ ...q, fasciaGroove: { ...q.fasciaGroove, depth: v } })} />
           </ToggleField>
+          <SliderField label="Metatarsal smoothing" range={RANGES.mtSmoothing} value={p.mtSmoothing} set={(q, v) => ({ ...q, mtSmoothing: v })} testId="mt-smoothing" />
+          <div className="hint" style={{ marginTop: -4 }}>Evens out the metatarsal head area and the blend into the forefoot (0 = off).</div>
           <SliderField label="Heel cup height" range={RANGES.heelCupHeight} value={p.heelCupHeight} set={(q, v) => ({ ...q, heelCupHeight: v })} testId="heel-cup" />
           <ToggleField label="MT Bar" checked={p.mtBar.enabled} onChange={toggle('MT bar', (q, v) => ({ ...q, mtBar: { ...q.mtBar, enabled: v } }))} testId="mt-bar">
-            <SliderField label="MT bar thickness" range={RANGES.mtBarThickness} value={p.mtBar.thickness} set={(q, v) => ({ ...q, mtBar: { ...q.mtBar, thickness: v } })} />
+            <SelectField<MtBarPath> label="Bar type" value={p.mtBar.path} options={MT_BAR_PATH_LABEL} onChange={(v) => updateInsole('MT bar type', (q) => ({ ...q, mtBar: { ...q.mtBar, path: v } }))} />
+            <SelectField<MtBarCoverage> label="Coverage" value={p.mtBar.coverage} options={MT_BAR_COVERAGE_LABEL} onChange={(v) => updateInsole('MT bar coverage', (q) => ({ ...q, mtBar: { ...q.mtBar, coverage: v } }))} />
+            <SliderField label="Bar height" range={RANGES.mtBarThickness} value={p.mtBar.thickness} set={(q, v) => ({ ...q, mtBar: { ...q.mtBar, thickness: v } })} />
+            <SliderField label="Bar width (front to back)" range={RANGES.mtBarWidth} value={p.mtBar.width} set={(q, v) => ({ ...q, mtBar: { ...q.mtBar, width: v } })} />
+            <SliderField label="Front edge behind the MT heads" range={RANGES.mtBarBehindHeads} value={p.mtBar.behindHeads} set={(q, v) => ({ ...q, mtBar: { ...q.mtBar, behindHeads: v } })} />
           </ToggleField>
         </Panel>
       )}

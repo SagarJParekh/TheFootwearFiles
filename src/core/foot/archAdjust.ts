@@ -4,28 +4,48 @@ import type { RigidTransform, Vec3 } from '../types';
 
 /**
  * Arch adjustment on the FOOT scan (not the insole). With the base plane set (sole on Z = 0),
- * the plantar surface under the medial longitudinal arch is raised (+) or lowered (−) by a
- * smooth bump: full effect at the arch, fading to zero towards the heel, the metatarsal heads,
- * the lateral side and up the side of the foot. The insole is then generated from the modified
- * foot, so it follows the new arch.
+ * the plantar surface under the medial longitudinal arch is raised (+) or lowered (−) between
+ * the "arch start" and "arch end" landmarks only: zero at and beyond both points, full effect at
+ * the arch peak (landmark, or 45 % of the way), fading towards the lateral side and up the side
+ * of the foot. The insole is then generated from the modified foot, so it follows the new arch.
  */
 export interface ArchRegion {
   toFrame: (x: number, y: number) => [number, number];
-  centre: [number, number];
+  start: [number, number];
+  end: [number, number];
+  /** Position of the peak along start → end (0…1). */
+  peakT: number;
+  /** Lateral offset of the peak from the start–end line (mm, + = lateral). */
+  peakOffset: number;
+  /** Unit vectors: along start → end, and towards the lateral side. */
+  along: [number, number];
+  lateral: [number, number];
+  length: number;
   radiusAcross: number;
-  radiusAlong: number;
 }
 
+export const ARCH_LANDMARKS_MISSING = 'Place the "Medial arch – start" and "Medial arch – end" landmarks first.';
+
 export function archRegion(lm: FrameLandmarks): ArchRegion {
+  if (!lm.archStart || !lm.archEnd) throw new Error(ARCH_LANDMARKS_MISSING);
   const f = buildInsoleFrame(lm);
-  const [a1, b1] = f.met1, [a5, b5] = f.met5;
-  const bMT = (b1 + b5) / 2;
-  const centre: [number, number] = f.arch ?? [f.medialSign * Math.max(12, 0.45 * Math.abs(a1)), 0.45 * bMT];
+  const start = f.archStart!, end = f.archEnd!;
+  const dx = end[0] - start[0], dy = end[1] - start[1];
+  const length = Math.hypot(dx, dy);
+  if (length < 20) throw new Error('The arch start and end landmarks are too close together.');
+  const along: [number, number] = [dx / length, dy / length];
+  let lateral: [number, number] = [-along[1], along[0]];
+  if (lateral[0] * f.medialSign > 0) lateral = [-lateral[0], -lateral[1]];
+  let peakT = 0.45, peakOffset = 0;
+  if (f.arch) {
+    const px = f.arch[0] - start[0], py = f.arch[1] - start[1];
+    peakT = Math.min(0.8, Math.max(0.2, (px * along[0] + py * along[1]) / length));
+    peakOffset = px * lateral[0] + py * lateral[1];
+  }
   return {
     toFrame: (x, y) => worldToFrame(f, x, y),
-    centre,
-    radiusAcross: Math.max(20, 0.4 * Math.abs(a1 - a5)),
-    radiusAlong: 0.42 * bMT,
+    start, end, peakT, peakOffset, along, lateral, length,
+    radiusAcross: Math.max(20, 0.4 * Math.abs(f.met1[0] - f.met5[0])),
   };
 }
 
@@ -37,9 +57,16 @@ const smoothstep = (e0: number, e1: number, x: number) => {
 /** Weight 0…1 of the arch adjustment at a world point (sole on Z = 0). */
 export function archWeight(r: ArchRegion, x: number, y: number, z: number): number {
   const [a, b] = r.toFrame(x, y);
-  const q = ((a - r.centre[0]) / r.radiusAcross) ** 2 + ((b - r.centre[1]) / r.radiusAlong) ** 2;
-  if (q >= 1) return 0;
-  return (1 - q) * (1 - q) * smoothstep(45, 15, z); // only the sole and the lower side wall
+  const px = a - r.start[0], py = b - r.start[1];
+  const t = (px * r.along[0] + py * r.along[1]) / r.length;
+  if (t <= 0 || t >= 1) return 0; // strictly between the arch start and end
+  // Along: smooth rise from the start to the peak and fall to the end (zero slope at both ends).
+  const hat = t < r.peakT ? t / r.peakT : (1 - t) / (1 - r.peakT);
+  const w = Math.sin((Math.PI / 2) * hat) ** 2;
+  // Across: full on the medial side of the start–peak–end line, fading laterally.
+  const lat = px * r.lateral[0] + py * r.lateral[1] - r.peakOffset * hat;
+  const across = lat <= 0 ? 1 : smoothstep(r.radiusAcross, 0, lat);
+  return w * across * smoothstep(45, 15, z); // only the sole and the lower side wall
 }
 
 function displace(z: number, w: number, delta: number): number {

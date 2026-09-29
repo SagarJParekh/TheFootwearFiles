@@ -5,7 +5,7 @@
 import type { ProjectDocument } from '../core/document';
 import type { FrameLandmarks } from '../core/insole/frame';
 import { defaultInsoleParams, suggestShoeSize, type InsoleParams, type InsoleType } from '../core/insole/params';
-import { adjustArchPoint, archRegion } from '../core/foot/archAdjust';
+import { ARCH_LANDMARKS_MISSING, adjustArchPoint, archRegion } from '../core/foot/archAdjust';
 import { syncBasePlane } from '../core/align/basePlane';
 import { applyTransform } from '../core/math/transform';
 import type { Vec3 } from '../core/types';
@@ -19,15 +19,19 @@ const set = useStore.setState;
 
 /** World-space landmarks needed by the insole frame, or null with the missing names. */
 export function insoleLandmarks(doc: ProjectDocument): { lm: FrameLandmarks | null; missing: string[] } {
-  const w = (id: 'heelCentre' | 'met1Head' | 'met5Head' | 'archPeak'): Vec3 | undefined => {
+  const w = (id: 'heelCentre' | 'met1Head' | 'met5Head' | 'archPeak' | 'archStart' | 'archEnd'): Vec3 | undefined => {
     const l = doc.landmarks[id];
     return l ? applyTransform(doc.transform, l.local) : undefined;
   };
   const hc = w('heelCentre'), m1 = w('met1Head'), m5 = w('met5Head');
   const missing = [!hc && 'Heel centre', !m1 && '1st metatarsal head', !m5 && '5th metatarsal head'].filter(Boolean) as string[];
   if (!hc || !m1 || !m5) return { lm: null, missing };
-  const arch = w('archPeak');
-  return { lm: { heelCentre: hc, met1Head: m1, met5Head: m5, ...(arch ? { archPeak: arch } : {}) }, missing };
+  const lm: FrameLandmarks = { heelCentre: hc, met1Head: m1, met5Head: m5 };
+  for (const id of ['archPeak', 'archStart', 'archEnd'] as const) {
+    const p = w(id);
+    if (p) lm[id] = p;
+  }
+  return { lm, missing };
 }
 
 /** "Create the insole" toggle (with the chosen type). Suggests the shoe size from the scan footprint. */
@@ -75,6 +79,10 @@ export async function setFootArch(target: number): Promise<void> {
   }
   const { lm } = insoleLandmarks(doc);
   if (!lm) return;
+  if (!lm.archStart || !lm.archEnd) {
+    set({ error: ARCH_LANDMARKS_MISSING });
+    return;
+  }
   const delta = target - (doc.footArchAdjust ?? 0);
   if (Math.abs(delta) < 1e-6) return;
   await withBusy('Adjusting the arch', async () => {

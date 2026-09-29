@@ -152,13 +152,46 @@ export function generateInsole(surface: PlantarSurface, params: InsoleParams): I
   inside.sort((x, y) => x - y);
   const z0 = inside[Math.floor(inside.length * 0.01)];
 
-  const sampleAt = (a: number, b: number) => {
+  const nodeAt = (a: number, b: number) => {
     const i = Math.min(g.nx - 1, Math.max(0, Math.round((a - g.a0) / g.h)));
     const j = Math.min(g.ny - 1, Math.max(0, Math.round((b - g.b0) / g.h)));
-    return plantar[j * g.nx + i];
+    return j * g.nx + i;
   };
-  // Forefoot level: height of the plantar surface under the 1st and 5th metatarsal heads.
-  const forefootLevel = (sampleAt(a1, b1) + sampleAt(a5, b5)) / 2;
+  const sampleAt = (a: number, b: number) => plantar[nodeAt(a, b)];
+  // Forefoot level: median height of the plantar surface along the metatarsal head line. (The
+  // M1/M5 landmarks sit at the edge of the footprint where the surface curves up the side of the
+  // foot, so sampling only there put the flat forefoot above the heads – a ridge at the MT line.)
+  const lineSamples: number[] = [];
+  for (let t = 0.1; t <= 0.9 + 1e-9; t += 0.025) {
+    const k = nodeAt(a1 + t * (a5 - a1), b1 + t * (b5 - b1));
+    if (outlineSdf[k] < 0) lineSamples.push(plantar[k]);
+  }
+  lineSamples.sort((x, y) => x - y);
+  const forefootLevel = lineSamples.length ? lineSamples[Math.floor(lineSamples.length / 2)] : (sampleAt(a1, b1) + sampleAt(a5, b5)) / 2;
+
+  // Metatarsal smoothing: behind the MT line the surface is replaced by a heavily smoothed copy
+  // (no individual head prints or ridges) and the blend into the flat forefoot is lengthened.
+  const smoothing = params.mtSmoothing;
+  const transition = 12 + 2.5 * smoothing;
+  const smoothed = smoothing > 0 ? gaussianBlur(plantar, g, 0.8 * smoothing) : plantar;
+
+  // MT bar: signed distance (mm) distal of the bar's front edge, per path type.
+  const bar = params.mtBar;
+  const bulge = (c: number) => 0.09 * mtLen * Math.sin(Math.PI * Math.pow(Math.min(1, Math.max(0, c)), 0.8));
+  const bFront = Math.min(b1, b5) - bar.behindHeads;
+  const barFrontDist = (a: number, b: number) =>
+    bar.path === 'straight' ? b - bFront : distMT(a, b) + bar.behindHeads - (bar.path === 'anatomical' ? bulge(acrossMT(a, b)) : 0);
+  // 3/4 length ends 6 mm before the MT line: move the bar back so it is complete on the insole.
+  let barShift = 0;
+  if (tq) {
+    let front = -Infinity;
+    for (let c = 0; c <= 1 + 1e-9; c += 0.05) {
+      const pa = a1 + c * (a5 - a1);
+      front = Math.max(front, bar.path === 'straight' ? (pa - a1) * distalA + (bFront - b1) * distalB : -bar.behindHeads + (bar.path === 'anatomical' ? bulge(c) : 0));
+    }
+    barShift = Math.max(0, front + 7);
+  }
+  const [cMin, cMax] = bar.coverage === 'rays2to4' ? [0.125, 0.875] : bar.coverage === 'rays2to5' ? [0.125, Infinity] : [-Infinity, Infinity];
 
   // --- top surface ------------------------------------------------------------------------
   // "shape" = where the insole's top would be without added features (the foot surface minus
@@ -178,10 +211,16 @@ export function generateInsole(surface: PlantarSurface, params: InsoleParams): I
     for (let i = 0; i < g.nx; i++) {
       const a = g.a0 + i * g.h;
       const k = j * g.nx + i;
+      const dm = distMT(a, b);
       let shape = plantar[k];
+      // Metatarsal region: blend in the smoothed surface from ~25 mm behind the transition.
+      if (smoothing > 0) {
+        const ws = smoothstep(-transition - 25, -transition, dm);
+        if (ws > 0) shape = shape * (1 - ws) + smoothed[k] * ws;
+      }
       // Forefoot: from the M1–M5 line forward the insole is completely flat (no toe contours
-      // are traced). A 12 mm band just behind the line blends into the traced surface.
-      const flat = smoothstep(-12, 0, distMT(a, b));
+      // are traced). A band just behind the line blends into the traced surface.
+      const flat = smoothstep(-transition, 0, dm);
       if (flat > 0) shape = shape * (1 - flat) + forefootLevel * flat;
       // Heel raise (3/4): lift the rearfoot, tapering to zero at the metatarsals.
       const lift = hr > 0 ? hr * smoothstep(bMT - 10, 0.35 * bMT, b) : 0;
@@ -200,9 +239,16 @@ export function generateInsole(surface: PlantarSurface, params: InsoleParams): I
       if (params.mtPad.enabled && params.mtPad.height > 0) {
         material += params.mtPad.height * bump(((a - padA) / 12) ** 2 + ((b - padB) / 17) ** 2);
       }
-      if (params.mtBar.enabled) {
-        const dm = distMT(a, b) + 10;
-        if (Math.abs(dm) < 10) material += params.mtBar.thickness * 0.5 * (1 + Math.cos((Math.PI * dm) / 10));
+      if (bar.enabled && bar.thickness > 0) {
+        // Profile front→back: short bevel up (30 % of the width), flat top, long ramp down.
+        const u = -(barFrontDist(a, b) + barShift);
+        if (u > 0 && u < bar.width) {
+          const x = acrossMT(a, b) * mtLen;
+          const span =
+            (Number.isFinite(cMin) ? smoothstep(cMin * mtLen - 3, cMin * mtLen + 3, x) : 1) *
+            (Number.isFinite(cMax) ? smoothstep(cMax * mtLen + 3, cMax * mtLen - 3, x) : 1);
+          material += bar.thickness * smoothstep(0, 0.3 * bar.width, u) * smoothstep(bar.width, 0.45 * bar.width, u) * span;
+        }
       }
       if (params.fasciaGroove.enabled && params.fasciaGroove.depth > 0) {
         const ex = grooveEnd[0] - grooveStart[0], ey = grooveEnd[1] - grooveStart[1];

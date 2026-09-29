@@ -5,7 +5,9 @@ export type LandmarkId =
   | 'heelCentre'
   | 'met1Head'
   | 'met5Head'
+  | 'archStart'
   | 'archPeak'
+  | 'archEnd'
   | 'medialMalleolus'
   | 'lateralMalleolus';
 
@@ -32,8 +34,16 @@ export const LANDMARKS: LandmarkDefinition[] = [
     scanTypes: ['plantar', 'lowerLimb'], hint: 'Plantar prominence of the 5th metatarsal head (lateral forefoot).',
   },
   {
+    id: 'archStart', label: 'Medial arch – start', shortLabel: 'AS', colour: '#bfef45',
+    scanTypes: ['plantar', 'lowerLimb'], hint: 'Where the medial arch starts rising, at the front of the heel (medial side).',
+  },
+  {
     id: 'archPeak', label: 'Medial arch – max height', shortLabel: 'AR', colour: '#f58231',
     scanTypes: ['plantar', 'lowerLimb'], hint: 'Highest point of the medial longitudinal arch (plantar surface).',
+  },
+  {
+    id: 'archEnd', label: 'Medial arch – end', shortLabel: 'AE', colour: '#9a6324',
+    scanTypes: ['plantar', 'lowerLimb'], hint: 'Where the medial arch meets the ground again, behind the 1st metatarsal head.',
   },
   {
     id: 'medialMalleolus', label: 'Medial malleolus', shortLabel: 'MM', colour: '#911eb4',

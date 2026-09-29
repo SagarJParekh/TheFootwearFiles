@@ -111,12 +111,85 @@ describe('insole generator', () => {
     const f = surface.frame;
     const pad = world(f.met1[0] + 0.4 * (f.met5[0] - f.met1[0]), f.met1[1] + 0.4 * (f.met5[1] - f.met1[1]) - 12);
     expect(topZ(gen((p) => (p.mtPad = { enabled: true, height: 5 })).mesh, ...pad) - topZ(gen().mesh, ...pad)).toBeCloseTo(5, 0);
-    const bar = world((f.met1[0] + f.met5[0]) / 2, (f.met1[1] + f.met5[1]) / 2 - 10);
-    expect(topZ(gen((p) => (p.mtBar = { enabled: true, thickness: 4 })).mesh, ...bar) - topZ(gen().mesh, ...bar)).toBeGreaterThan(3);
+    const bar = world((f.met1[0] + f.met5[0]) / 2, (f.met1[1] + f.met5[1]) / 2 - 16);
+    expect(topZ(gen((p) => (p.mtBar = { ...p.mtBar, enabled: true, thickness: 4 })).mesh, ...bar) - topZ(gen().mesh, ...bar)).toBeGreaterThan(3);
     const groove = world(-7.7, 45); // on the heel → 1st/2nd ray line
     const withGroove = gen((p) => (p.fasciaGroove = { enabled: true, depth: 3 }));
     expect(topZ(gen().mesh, ...groove, 1.2) - topZ(withGroove.mesh, ...groove, 1.2)).toBeGreaterThan(1.5);
     expect(withGroove.minThickness).toBeGreaterThanOrEqual(0.8 - 1e-6);
+  });
+
+  /** Point `back` mm proximal of the M1–M5 line, at fraction c from M1 (0) to M5 (1). */
+  const mtPoint = (c: number, back: number): [number, number] => {
+    const f = surface.frame;
+    const dA = f.met5[0] - f.met1[0], dB = f.met5[1] - f.met1[1], len = Math.hypot(dA, dB);
+    let nA = -dB / len, nB = dA / len;
+    if (nB < 0) [nA, nB] = [-nA, -nB];
+    return world(f.met1[0] + c * dA - nA * back, f.met1[1] + c * dB - nB * back);
+  };
+
+  it('has no ridge at the metatarsals: the flat forefoot continues the head region smoothly', () => {
+    const r = gen();
+    for (const c of [0.3, 0.5, 0.7]) {
+      const flatTop = topZ(r.mesh, ...mtPoint(c, -10), 1.2);
+      let headMin = Infinity;
+      for (let back = 0; back <= 10; back += 2) headMin = Math.min(headMin, topZ(r.mesh, ...mtPoint(c, back), 1.2));
+      expect(flatTop - headMin).toBeLessThan(1);
+    }
+  });
+
+  describe('MT bar types', () => {
+    const bases = new Map<string, ReturnType<typeof gen>>();
+    const rise = (r: ReturnType<typeof gen>, c: number, back: number) => {
+      if (!bases.has(r.kind)) bases.set(r.kind, gen((p) => (p.type = r.kind)));
+      const base = bases.get(r.kind)!;
+      return topZ(r.mesh, ...mtPoint(c, back), 1.2) - topZ(base.mesh, ...mtPoint(c, back), 1.2);
+    };
+    const withBar = (bar: Partial<InsoleParams['mtBar']>, type: InsoleParams['type'] = 'full') =>
+      gen((p) => { p.type = type; p.mtBar = { ...p.mtBar, enabled: true, thickness: 4, ...bar }; });
+
+    it('oblique full-width bar is a complete bar across all five metatarsals, behind the heads', () => {
+      const r = withBar({ path: 'oblique', coverage: 'full' });
+      for (const c of [0.05, 0.25, 0.5, 0.75, 0.95]) expect(rise(r, c, 16)).toBeGreaterThan(3.6);
+      expect(Math.abs(rise(r, 0.5, 3))).toBeLessThan(0.05); // nothing under the heads
+      expect(Math.abs(rise(r, 0.5, 36))).toBeLessThan(0.05);
+    });
+
+    it('coverage 2–4 spares the 1st and 5th rays, 2–5 spares the 1st', () => {
+      const c24 = withBar({ coverage: 'rays2to4' });
+      expect(rise(c24, 0.5, 16)).toBeGreaterThan(3.6);
+      expect(rise(c24, 0, 16)).toBeLessThan(0.1);
+      expect(rise(c24, 1, 16)).toBeLessThan(0.1);
+      const c25 = withBar({ coverage: 'rays2to5' });
+      expect(rise(c25, 0, 16)).toBeLessThan(0.1);
+      expect(rise(c25, 1, 16)).toBeGreaterThan(3.6);
+    });
+
+    it('anatomical bar follows the metatarsal parabola; straight bar runs across the foot axis', () => {
+      const anat = withBar({ path: 'anatomical' }), obl = withBar({ path: 'oblique' });
+      expect(rise(anat, 0.4, 8)).toBeGreaterThan(3.6); // further forward under the 2nd/3rd rays
+      expect(rise(obl, 0.4, 8)).toBeLessThan(0.5);
+      expect(rise(anat, 0.05, 16)).toBeGreaterThan(3.6); // same as oblique at the 1st and 5th heads
+      const f = surface.frame;
+      const straight = withBar({ path: 'straight' });
+      const bFront = Math.min(f.met1[1], f.met5[1]) - 7;
+      for (const a of [0.8 * f.met1[0], 0, 0.8 * f.met5[0]]) {
+        const pt = world(a, bFront - 9);
+        expect(topZ(straight.mesh, ...pt, 1.2) - topZ(gen().mesh, ...pt, 1.2)).toBeGreaterThan(3.6);
+      }
+    });
+
+    it('stays complete on the 3/4 insole (moved back behind the 3/4 edge)', () => {
+      for (const path of ['oblique', 'anatomical', 'straight'] as const) {
+        const r = withBar({ path }, 'threeQuarter');
+        let best = 0;
+        for (let back = 8; back <= 50; back += 1) {
+          const d = rise(r, 0.4, back);
+          if (Number.isFinite(d)) best = Math.max(best, d);
+        }
+        expect(best).toBeGreaterThan(3.8);
+      }
+    });
   });
 
   it('medial wedge raises the medial side more than the lateral side', () => {

@@ -1,6 +1,7 @@
 /**
  * Browser test of the insole designer: landmarks → align → create insole → modifications →
- * orthosis → undo → download. Uses the synthetic closed foot sample.
+ * MT bar types → foot arch between AS/AE → undo → 3/4 shell → download. Uses the synthetic
+ * closed foot sample.
  */
 import { existsSync } from 'node:fs';
 import { createServer } from 'vite';
@@ -37,6 +38,12 @@ try {
     await page.evaluate(([id, p]) => window.__app.landmarks.placeLandmark(id, p), [id, p]);
   }
   await page.click('[data-testid=tab-insole]');
+  const archDisabled = () => page.isDisabled('[data-testid=foot-arch]');
+  check(await archDisabled(), 'arch adjustment waits for the arch start/end landmarks');
+  for (const [id, p] of [['archStart', [-12, 70, 3]], ['archEnd', [-22, 150, 1]]]) {
+    await page.evaluate(([id, p]) => window.__app.landmarks.placeLandmark(id, p), [id, p]);
+  }
+  check(!(await archDisabled()), 'arch adjustment enabled once AS and AE are placed');
 
   // 1) Full length (FDM)
   await page.check('[data-testid=type-full]');
@@ -70,6 +77,11 @@ try {
   await settle();
   f = await flatBase();
   check(f.spread < 1e-3 && !(await state()).err, 'features applied, base still flat');
+  await page.selectOption('select:has(option[value=anatomical])', 'anatomical');
+  await page.selectOption('select:has(option[value=rays2to4])', 'rays2to4');
+  await settle();
+  const bar = await page.evaluate(() => window.__app.useStore.getState().doc.insole.mtBar);
+  check(bar.path === 'anatomical' && bar.coverage === 'rays2to4' && !(await state()).err, 'MT bar type anatomical, coverage MT 2–4');
 
   // arch on the foot: modifies the scan, one undo step
   const meshId = () => page.evaluate(() => window.__app.useStore.getState().doc.mesh.id);
@@ -79,6 +91,11 @@ try {
   await page.waitForFunction(() => window.__app.useStore.getState().doc.footArchAdjust === 6, null, { timeout: 30000 });
   await settle();
   check((await meshId()) !== idBefore, 'arch +6 mm applied to the foot scan (new mesh), insole regenerated');
+  const ends = await page.evaluate(() => {
+    const l = window.__app.useStore.getState().doc.landmarks;
+    return [l.archStart.local, l.archEnd.local];
+  });
+  check(Math.abs(ends[0][2] - 3) < 1e-6 && Math.abs(ends[1][2] - 1) < 1e-6, 'arch start and end points did not move');
   await page.keyboard.press('Control+z');
   check((await meshId()) === idBefore, 'undo restores the original foot');
 

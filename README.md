@@ -67,7 +67,7 @@ To try the app without a real scan, use the **Samples** menu:
 - **Scan setup** (asked on load, and changeable later):
   - Scan type: *Plantar surface* or *Lower limb*.
   - Side: *Left* or *Right*.
-- **Landmarks:** heel centre, 1st and 5th metatarsal heads, medial arch peak. Lower-limb scans also get the medial and lateral malleoli.
+- **Landmarks:** heel centre, 1st and 5th metatarsal heads, medial arch start, medial arch peak, medial arch end. Lower-limb scans also get the medial and lateral malleoli.
 - **Placing and editing:**
   - Select a landmark in the side panel, then click the mesh. The point snaps to the surface using a BVH raycast, and selection moves on to the next missing landmark.
   - Drag a marker to slide it along the surface, or delete it.
@@ -110,14 +110,14 @@ The padding is added externally after printing. So **padding clearance** is a ga
 | Align the scan (base plane) | Set automatically from the heel centre, M1 and M5 (see [Base plane](#base-plane-heel-centre--1st-mt-head--5th-mt-head)); the model is then locked |
 | **Toes aligned in the arrow direction** | Shows the green toe arrow (+Y); the base plane always points the toes along it |
 | Which side is model | Left or right (set in Scan setup) |
-| Landmarks | Heel centre, 1st and 5th metatarsal heads are required; the arch peak is optional (it centres the foot arch adjustment) |
-| **Foot arch adjustment** | −15…+15 mm. Raises (+) or lowers (−) the medial arch **of the foot scan itself** (not the insole), so the insole then follows the corrected foot. Needs the base plane. The value is cumulative, undoable and saved with the project. The sole is never pushed below the floor. |
+| Landmarks | Heel centre, 1st and 5th metatarsal heads are required for the insole. For the arch adjustment, place the **medial arch start (AS)**, where the arch starts rising in front of the heel, and the **medial arch end (AE)**, where it meets the ground behind the 1st MT head. The arch peak (AR) is optional. |
+| **Foot arch adjustment** | −15…+15 mm. Raises (+) or lowers (−) the medial arch **of the foot scan itself** (not the insole), so the insole then follows the corrected foot. The change is made **only between AS and AE**: zero at and beyond both points, largest at AR (or 45 % of the way from AS if AR isn't placed), and fading towards the lateral side. Needs the base plane and AS/AE. The value is cumulative, undoable and saved with the project. The sole is never pushed below the floor. |
 
 **2 · Insole type** (chosen before designing, and can be changed later)
 
 | Type | Printing | Result |
 | --- | --- | --- |
-| **Full length** | FDM | Follows the foot up to the metatarsal heads. **Completely flat from the M1–M5 line forward**, with a 12 mm blend behind the line. Finished with a **flat base** for printing. |
+| **Full length** | FDM | Follows the foot up to the metatarsal heads. **Completely flat from the M1–M5 line forward**, at the height of the metatarsal heads, with a smooth blend behind the line (see *Metatarsal smoothing*). Finished with a **flat base** for printing. |
 | **3/4 length** | Powder bed | Ends 6 mm before the metatarsal line. The part is a **shell of uniform thickness, 2–4 mm (default 2.5 mm)**. |
 
 **Shoe Size** is UK2–UK13 in half sizes. Insole length = (size + 25) barleycorns − 5 mm, so UK8 = 274 mm. A size is suggested from the scan's footprint length. **Create the insole** generates it.
@@ -132,7 +132,20 @@ The padding is added externally after printing. So **padding clearance** is a ga
 | Add MT Pad | height 0–7 mm | Dome just proximal to the 2nd–4th metatarsal heads |
 | Plantar fascia groove | depth 0–4 mm | Channel from the heel to the 1st/2nd ray |
 | Heel cup height | 6–30 mm | Height of the rim around the heel and rearfoot |
-| MT Bar | thickness 2–5 mm | Transverse ridge just proximal to the metatarsal line |
+| Metatarsal smoothing | 0–10 (default 5) | Evens out the metatarsal head area and lengthens the blend into the flat forefoot (12 mm at 0, 37 mm at 10), so there is no bump at the metatarsals |
+| MT Bar | see below | A complete bar just behind the metatarsal heads |
+
+**MT bar types.** A metatarsal bar is a raised strip placed just proximal to the metatarsal heads. It takes load off the heads and spreads it onto the shafts. It must never sit under the heads: studies find the best pressure relief with the peak about 6–11 mm behind the head line. An oblique bar, parallel to the head line, relieved the 2nd MT head better than one placed straight across. Options:
+
+| Control | Options / range | Effect |
+| --- | --- | --- |
+| Bar type | **Oblique** (default), **Straight**, **Anatomical** | Oblique runs parallel to the M1–M5 line. Straight runs square to the foot axis, behind the most proximal head. Anatomical is curved to follow the metatarsal parabola (further forward under the 2nd–3rd heads) |
+| Coverage | **Full width (MT 1–5)**, **MT 2–5**, **MT 2–4** | Full width runs edge to edge. MT 2–5 spares the 1st ray. MT 2–4 is central and spares the 1st and 5th |
+| Bar height | 2–5 mm | Height of the bar's flat top |
+| Bar width | 15–35 mm (default 25) | Front-to-back size: a short bevel at the front, a flat top, and a long ramp at the back |
+| Front edge behind the MT heads | 3–15 mm (default 7) | Gap between the heads and the front of the bar |
+
+On a 3/4 insole the bar is moved back just enough to fit completely in front of the 3/4 edge.
 
 **4 · Finish**
 
@@ -279,9 +292,9 @@ src/
   - landmark JSON/CSV serialisation and import fallback
   - measurements, including arch height to a tilted plane
   - project round-trip and corrupt-file rejection
-  - insole designer: shoe-size length, padding clearance, full-length flat base, narrow profile, MT pad/bar, fascia groove, wedges, heel cup, 3/4 shell (uniform thickness, heel post, heel raise, Morton's extension, offloads, heel hole), foot arch adjustment, legacy project upgrade, open plantar scans, landmark alignment and the base-plane lock (set, follow moved points, release on delete)
+  - insole designer: shoe-size length, padding clearance, full-length flat base, narrow profile, MT pad/bar, fascia groove, wedges, heel cup, 3/4 shell (uniform thickness, heel post, heel raise, Morton's extension, offloads, heel hole), foot arch adjustment limited to the AS–AE span, no ridge at the metatarsals, MT bar types and coverage (complete on both insole types), legacy project upgrade, open plantar scans, landmark alignment and the base-plane lock (set, follow moved points, release on delete)
   - file formats: OBJ (quads, negative indices), PLY (ASCII, binary, point-cloud rejection), OFF, 3DM, STEP/IGES (including metre and inch files), unit guessing, Y-up conversion and re-interpretation
-- `npm run e2e`: browser smoke test of the main workflow, the insole designer (full length flat base → clearance → features → foot arch → undo → 3/4 shell → download), the base plane (auto-set on a tilted scan, rotation refused, re-align, release, undo), plus an import test of every format fixture (3MF, AMF, glTF/GLB, DAE, VRML, 3DM, STEP, IGES, …).
+- `npm run e2e`: browser smoke test of the main workflow, the insole designer (full length flat base → clearance → features → MT bar type → foot arch between AS/AE → undo → 3/4 shell → download), the base plane (auto-set on a tilted scan, rotation refused, re-align, release, undo), plus an import test of every format fixture (3MF, AMF, glTF/GLB, DAE, VRML, 3DM, STEP, IGES, …).
 
 ## Known limitations
 
@@ -308,6 +321,7 @@ src/
 - **ASCII STL:** parsed in memory with a regular expression, which is fine for typical files but not for multi-GB ASCII scans.
 - **Insole designer:**
   - The insole shape comes from simple rules, not a clinical template. The outline is a spline fitted to the shoe size and M1/M5, and the feature positions are fixed offsets from the landmarks (MT pad 12 mm behind the metatarsal line, fascia groove heel → 1st/2nd ray, and so on).
-  - The foot arch adjustment is a smooth bump on the medial arch of the scan, centred on the arch landmark (or estimated if that isn't placed).
+  - The foot arch adjustment is a smooth bump on the medial arch of the scan between the AS and AE landmarks. It fades out laterally over about 40 % of the forefoot width.
+  - Heads 2–4 are not landmarked: the anatomical MT bar estimates the metatarsal parabola from M1 and M5.
   - The insole walls are vertical; there is no flare or bevel yet.
 - **Undo memory:** history is capped at 600 MB of mesh data. On very large meshes only the last few mesh edits can be undone.

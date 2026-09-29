@@ -16,6 +16,8 @@ export interface InsoleFrame {
   met1: [number, number];
   met5: [number, number];
   arch: [number, number] | null;
+  archStart: [number, number] | null;
+  archEnd: [number, number] | null;
 }
 
 export interface FrameLandmarks {
@@ -23,6 +25,8 @@ export interface FrameLandmarks {
   met1Head: Vec3;
   met5Head: Vec3;
   archPeak?: Vec3;
+  archStart?: Vec3;
+  archEnd?: Vec3;
 }
 
 export function buildInsoleFrame(lm: FrameLandmarks): InsoleFrame {
@@ -49,6 +53,8 @@ export function buildInsoleFrame(lm: FrameLandmarks): InsoleFrame {
     met1,
     met5,
     arch: lm.archPeak ? toFrame(lm.archPeak) : null,
+    archStart: lm.archStart ? toFrame(lm.archStart) : null,
+    archEnd: lm.archEnd ? toFrame(lm.archEnd) : null,
   };
 }
 
