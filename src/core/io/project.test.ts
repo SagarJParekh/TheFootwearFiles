@@ -3,6 +3,7 @@ import { strToU8, zipSync } from 'fflate';
 import { newDocument } from '../document';
 import { sphereWithHoles } from '../fixtures/primitives';
 import { eulerDegToQuat } from '../math/transform';
+import { defaultInsoleParams } from '../insole/params';
 import { deserializeProject, serializeProject } from './project';
 
 describe('project files', () => {
@@ -22,6 +23,15 @@ describe('project files', () => {
     expect(Array.from(back.mesh.positions)).toEqual(Array.from(mesh.positions));
     expect(Array.from(back.mesh.indices)).toEqual(Array.from(mesh.indices));
     expect(back.mesh.id).not.toBe(mesh.id);
+  });
+
+  it('round-trips the insole design', () => {
+    const insole = defaultInsoleParams(9);
+    insole.mtPad = { enabled: true, height: 5.5 };
+    insole.orthosis = { ...insole.orthosis, enabled: true, mortonsExtension: 'mortons', offloads: ['MT-2', 'MT-3'] };
+    const doc = { ...newDocument(sphereWithHoles(), 'x.stl'), insole };
+    expect(deserializeProject(serializeProject(doc)).insole).toEqual(insole);
+    expect(deserializeProject(serializeProject(newDocument(sphereWithHoles(), 'x.stl'))).insole).toBeNull();
   });
 
   it('rejects non-project data', () => {

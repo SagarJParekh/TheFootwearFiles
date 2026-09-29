@@ -13,6 +13,7 @@ import { firstVisibleHit, worldToLocal } from './picking';
 import { placeLandmark } from '../state/landmarkActions';
 import { ClipPlane } from './ClipPlane';
 import { HoleOverlay } from './HoleOverlay';
+import { InsoleView, ToeArrow } from './InsoleView';
 
 /** Click on the surface → place the active landmark (ignored if the click was an orbit drag). */
 function onSurfaceClick(e: ThreeEvent<MouseEvent>) {
@@ -68,8 +69,10 @@ function Scene() {
       )}
       {view.showAxes && <axesHelper args={[100]} />}
 
+      <ToeArrow />
+      <InsoleView />
       {geometry && (
-        <ModelGroup>
+        <ModelGroup visible={view.showScan}>
           <ModelMesh
             geometry={geometry}
             flatShading={view.flatShading}

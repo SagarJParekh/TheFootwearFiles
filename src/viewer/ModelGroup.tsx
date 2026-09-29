@@ -14,7 +14,7 @@ import { sceneRefs } from './sceneRefs';
  * which is equivalent to world = R * local + t with t = P - R * c. Rotating with the gizmo
  * therefore pivots about the bounding-box centre instead of the (arbitrary) scan origin.
  */
-export function ModelGroup({ children }: { children: ReactNode }) {
+export function ModelGroup({ children, visible = true }: { children: ReactNode; visible?: boolean }) {
   const transform = useStore((s) => s.doc?.transform);
   const bounds = useStore((s) => s.derived?.stats.bounds);
   const gizmo = useStore((s) => s.view.gizmo);
@@ -44,7 +44,7 @@ export function ModelGroup({ children }: { children: ReactNode }) {
   return (
     <>
       <group ref={setPivot} position={pivotPos} quaternion={transform.quaternion}>
-        <group ref={setLocalSpace} position={[-centre[0], -centre[1], -centre[2]]}>
+        <group ref={setLocalSpace} position={[-centre[0], -centre[1], -centre[2]]} visible={visible}>
           {children}
         </group>
       </group>

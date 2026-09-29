@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { ProjectDocument } from '../core/document';
 import type { MeshStats, Vec3 } from '../core/types';
 import type { LandmarkId } from '../core/landmarks/definitions';
-import type { HoleInfo } from '../workers/mesh.worker';
+import type { HoleInfo, InsoleOutput } from '../workers/mesh.worker';
 import { emptyHistory, pushHistory, redo, undo, type HistoryState } from './history';
 
 export type ViewPreset = 'top' | 'bottom' | 'medial' | 'lateral' | 'front' | 'back' | 'iso';
@@ -16,6 +16,9 @@ export interface ViewState {
   showAxes: boolean;
   showLabels: boolean;
   gizmo: GizmoMode;
+  /** Show the scan (the insole designer can hide it: "Toggle scan visibility"). */
+  showScan: boolean;
+  showToeArrow: boolean;
 }
 
 /** Non-destructive clipping plane in world space; the visible side is where dot(n, p) >= constant. */
@@ -62,6 +65,12 @@ export interface AppState {
   holeExcluded: Set<number>;
   hoveredHole: number | null;
   showHoles: boolean;
+  /** Generated insole for the current design (derived, not saved). */
+  insole: { key: string; output: InsoleOutput } | null;
+  insoleBusy: boolean;
+  insoleError: string | null;
+  /** Right sidebar tab. */
+  rightTab: 'landmarks' | 'insole';
   /** Snapshot taken at the start of a continuous gesture (gizmo drag, landmark drag). */
   gestureStart: ProjectDocument | null;
 }
@@ -73,6 +82,8 @@ export const initialView: ViewState = {
   showAxes: true,
   showLabels: true,
   gizmo: 'none',
+  showScan: true,
+  showToeArrow: true,
 };
 
 export const useStore = create<AppState>(() => ({
@@ -93,6 +104,10 @@ export const useStore = create<AppState>(() => ({
   holeExcluded: new Set(),
   hoveredHole: null,
   showHoles: true,
+  insole: null,
+  insoleBusy: false,
+  insoleError: null,
+  rightTab: 'landmarks',
   gestureStart: null,
 }));
 

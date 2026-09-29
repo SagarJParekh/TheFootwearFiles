@@ -26,6 +26,21 @@ import { computeVertexNormals } from '../core/mesh/normals';
 import type { MeshData, MeshStats, Plane, RigidTransform, Vec3 } from '../core/types';
 import { MESH_NOT_CACHED, type MeshRef } from './meshRef';
 import type { ImportInfo } from '../core/units';
+import { generateInsole, samplePlantarSurface, type InsoleResult, type PlantarSurface } from '../core/insole/generate';
+import type { InsoleParams } from '../core/insole/params';
+import type { FrameLandmarks } from '../core/insole/frame';
+
+// Plantar surface sampling is the slow part (rasterising the whole scan) – cache the latest.
+let plantarCache: { key: string; surface: PlantarSurface } | null = null;
+function plantarSurface(mesh: MeshData, transform: RigidTransform, landmarks: FrameLandmarks): PlantarSurface {
+  const key = `${mesh.id}|${JSON.stringify(transform)}|${JSON.stringify(landmarks)}`;
+  if (plantarCache?.key !== key) {
+    plantarCache = { key, surface: samplePlantarSurface(transformPositions(mesh.positions, transform), mesh.indices, landmarks) };
+  }
+  return plantarCache.surface;
+}
+
+export type InsoleOutput = Omit<InsoleResult, 'mesh'> & { mesh: MeshData; normals: Float32Array };
 import { finishImport, type ImportOverrides } from '../formats/finishImport';
 import { FORMATS, type FormatInfo } from '../formats/registry';
 import {
@@ -172,6 +187,18 @@ const api = {
       }
     }
     return transferMesh({ ...r, fallbackReason }, r.mesh);
+  },
+
+  /** Foot length from the scan footprint (for the shoe-size suggestion). */
+  async measureFoot(ref: MeshRef, transform: RigidTransform, landmarks: FrameLandmarks): Promise<number | null> {
+    return plantarSurface(resolve(ref), transform, landmarks).footLength;
+  },
+
+  /** Generates the insole / orthosis solid (world coordinates) for the given parameters. */
+  async generateInsole(ref: MeshRef, transform: RigidTransform, landmarks: FrameLandmarks, params: InsoleParams): Promise<InsoleOutput> {
+    const r = generateInsole(plantarSurface(resolve(ref), transform, landmarks), params);
+    const normals = computeVertexNormals(r.mesh);
+    return Comlink.transfer(transferMesh({ ...r, normals }, r.mesh), [normals.buffer]);
   },
 
   async findHoles(ref: MeshRef): Promise<HoleInfo[]> {

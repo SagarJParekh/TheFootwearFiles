@@ -2,6 +2,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import type { LandmarkMap, ProjectDocument, ScanInfo } from '../document';
 import { LANDMARK_BY_ID, type LandmarkId } from '../landmarks/definitions';
 import { makeMesh, type RigidTransform } from '../types';
+import { defaultInsoleParams, type InsoleParams } from '../insole/params';
 
 /**
  * Project file (.tffproj): a zip containing
@@ -20,6 +21,7 @@ interface ProjectJson {
   scan: ScanInfo | null;
   transform: RigidTransform;
   landmarks: LandmarkMap;
+  insole?: InsoleParams | null;
   mesh: { vertexCount: number; triangleCount: number; positions: string; indices: string };
 }
 
@@ -51,6 +53,7 @@ export function serializeProject(doc: ProjectDocument, savedAt = new Date().toIS
     scan: doc.scan,
     transform: doc.transform,
     landmarks: doc.landmarks,
+    insole: doc.insole ?? null,
     mesh: {
       vertexCount: doc.mesh.positions.length / 3,
       triangleCount: doc.mesh.indices.length / 3,
@@ -101,5 +104,6 @@ export function deserializeProject(data: Uint8Array): ProjectDocument {
     mesh: makeMesh(positions, indices),
     transform: json.transform,
     landmarks,
+    insole: json.insole ? { ...defaultInsoleParams(), ...json.insole, orthosis: { ...defaultInsoleParams().orthosis, ...json.insole.orthosis } } : null,
   };
 }

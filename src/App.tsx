@@ -9,6 +9,7 @@ import { LandmarkPanel } from './ui/panels/LandmarkPanel';
 import { MeasurementsPanel } from './ui/panels/MeasurementsPanel';
 import { ClipCutPanel } from './ui/panels/ClipCutPanel';
 import { HolesPanel } from './ui/panels/HolesPanel';
+import { InsolePanel } from './ui/panels/InsolePanel';
 import { StatusBar } from './ui/StatusBar';
 import { useKeyboardShortcuts } from './ui/useKeyboardShortcuts';
 import { openAnyFile } from './state/fileOpen';
@@ -17,6 +18,7 @@ import { useStore } from './state/store';
 export default function App() {
   const hasDoc = useStore((s) => !!s.doc);
   const tool = useStore((s) => s.tool);
+  const rightTab = useStore((s) => s.rightTab);
   const [dragOver, setDragOver] = useState(false);
   useKeyboardShortcuts();
 
@@ -76,8 +78,26 @@ export default function App() {
         </div>
         {hasDoc && (
           <aside className="sidebar right">
-            <LandmarkPanel />
-            <MeasurementsPanel />
+            <div className="tabs">
+              <button className={rightTab === 'landmarks' ? 'active' : ''} onClick={() => useStore.setState({ rightTab: 'landmarks' })}>
+                Landmarks
+              </button>
+              <button
+                className={rightTab === 'insole' ? 'active' : ''}
+                onClick={() => useStore.setState({ rightTab: 'insole' })}
+                data-testid="tab-insole"
+              >
+                Insole designer
+              </button>
+            </div>
+            {rightTab === 'landmarks' ? (
+              <>
+                <LandmarkPanel />
+                <MeasurementsPanel />
+              </>
+            ) : (
+              <InsolePanel />
+            )}
           </aside>
         )}
       </div>
