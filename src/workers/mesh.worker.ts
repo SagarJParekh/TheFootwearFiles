@@ -11,7 +11,8 @@ import { weldSoup } from '../core/mesh/weld';
 import { analyzeMesh } from '../core/mesh/analyze';
 import { computeVertexNormals } from '../core/mesh/normals';
 import { transformPositions } from '../core/math/transform';
-import type { MeshData, MeshStats, RigidTransform } from '../core/types';
+import { distancesToSurface } from '../core/mesh/closestPoint';
+import type { MeshData, MeshStats, RigidTransform, Vec3 } from '../core/types';
 
 function transferMesh<T extends object>(result: T, ...meshes: MeshData[]): T {
   return Comlink.transfer(
@@ -38,6 +39,10 @@ const api = {
   async normals(mesh: MeshData): Promise<Float32Array> {
     const n = computeVertexNormals(mesh);
     return Comlink.transfer(n, [n.buffer]);
+  },
+
+  async surfaceDistances(mesh: MeshData, points: Vec3[]): Promise<number[]> {
+    return distancesToSurface(mesh, points);
   },
 
   async exportStl(mesh: MeshData, transform: RigidTransform | null): Promise<ArrayBuffer> {

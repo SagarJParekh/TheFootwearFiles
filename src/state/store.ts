@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { ProjectDocument } from '../core/document';
 import type { MeshStats } from '../core/types';
+import type { LandmarkId } from '../core/landmarks/definitions';
 import { emptyHistory, pushHistory, redo, undo, type HistoryState } from './history';
 
 export type ViewPreset = 'top' | 'bottom' | 'medial' | 'lateral' | 'front' | 'back' | 'iso';
@@ -40,6 +41,10 @@ export interface AppState {
   error: string | null;
   notice: string | null;
   scanDialogOpen: boolean;
+  /** Landmark that the next click on the surface will place. */
+  activeLandmark: LandmarkId | null;
+  /** Landmarks found to be off the current surface (e.g. after a cut), with distance in mm. */
+  offSurface: Partial<Record<LandmarkId, number>>;
   /** Snapshot taken at the start of a continuous gesture (gizmo drag, landmark drag). */
   gestureStart: ProjectDocument | null;
 }
@@ -64,6 +69,8 @@ export const useStore = create<AppState>(() => ({
   error: null,
   notice: null,
   scanDialogOpen: false,
+  activeLandmark: null,
+  offSurface: {},
   gestureStart: null,
 }));
 

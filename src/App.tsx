@@ -5,6 +5,8 @@ import { InfoPanel } from './ui/panels/InfoPanel';
 import { DisplayPanel } from './ui/panels/DisplayPanel';
 import { TransformPanel } from './ui/panels/TransformPanel';
 import { ScanSetupDialog } from './ui/ScanSetupDialog';
+import { LandmarkPanel } from './ui/panels/LandmarkPanel';
+import { MeasurementsPanel } from './ui/panels/MeasurementsPanel';
 import { StatusBar } from './ui/StatusBar';
 import { useKeyboardShortcuts } from './ui/useKeyboardShortcuts';
 import { openAnyFile } from './state/fileOpen';
@@ -12,6 +14,7 @@ import { useStore } from './state/store';
 
 export default function App() {
   const hasDoc = useStore((s) => !!s.doc);
+  const tool = useStore((s) => s.tool);
   const [dragOver, setDragOver] = useState(false);
   useKeyboardShortcuts();
 
@@ -60,10 +63,16 @@ export default function App() {
             </div>
           )}
         </aside>
-        <div className="viewport">
+        <div className={`viewport tool-${tool}`}>
           <Viewport />
-          {dragOver && <div className="drop-overlay">Drop STL to open</div>}
+          {dragOver && <div className="drop-overlay">Drop STL, project or landmarks JSON</div>}
         </div>
+        {hasDoc && (
+          <aside className="sidebar right">
+            <LandmarkPanel />
+            <MeasurementsPanel />
+          </aside>
+        )}
       </div>
       <StatusBar />
       <ScanSetupDialog />

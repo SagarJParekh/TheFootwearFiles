@@ -131,3 +131,5 @@ table.measure tr.na td { color: var(--muted); }
 .row label { display: flex; align-items: center; gap: 4px; }
 .row input[type='range'] { flex: 1; }
 .row input[type='number'] { width: 70px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 4px; }
+
+.viewport.tool-landmark canvas { cursor: crosshair; }

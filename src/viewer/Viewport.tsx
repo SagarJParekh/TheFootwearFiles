@@ -1,4 +1,4 @@
-import { Canvas } from '@react-three/fiber';
+import { Canvas, type ThreeEvent } from '@react-three/fiber';
 import { GizmoHelper, GizmoViewport, Grid, OrbitControls } from '@react-three/drei';
 import { useCallback } from 'react';
 import * as THREE from 'three';
@@ -8,6 +8,20 @@ import { ModelGroup } from './ModelGroup';
 import { ModelMesh } from './ModelMesh';
 import { sceneRefs } from './sceneRefs';
 import { useMeshGeometry } from './useMeshGeometry';
+import { LandmarkMarkers } from './LandmarkMarkers';
+import { firstVisibleHit, worldToLocal } from './picking';
+import { placeLandmark } from '../state/landmarkActions';
+
+/** Click on the surface → place the active landmark (ignored if the click was an orbit drag). */
+function onSurfaceClick(e: ThreeEvent<MouseEvent>) {
+  const { tool, activeLandmark } = useStore.getState();
+  if (tool !== 'landmark' || !activeLandmark || e.delta > 4) return;
+  const hit = firstVisibleHit(e.intersections);
+  if (!hit) return;
+  e.stopPropagation();
+  const local = worldToLocal(hit.point);
+  if (local) placeLandmark(activeLandmark, local);
+}
 
 // App convention: Z is up (+Y anterior, +X patient's right).
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -23,6 +37,9 @@ function Scene() {
   const setMeshRef = useCallback((m: THREE.Mesh | null) => {
     sceneRefs.modelMesh = m;
   }, []);
+  const bounds = derived?.stats.bounds;
+  const diag = bounds ? Math.hypot(...bounds.max.map((v, i) => v - bounds.min[i])) : 100;
+  const markerRadius = Math.max(1.2, diag * 0.007);
 
   return (
     <>
@@ -53,7 +70,9 @@ function Scene() {
             wireframe={view.wireframe}
             clippingPlanes={NO_PLANES}
             meshRef={setMeshRef}
+            onClick={onSurfaceClick}
           />
+          <LandmarkMarkers radius={markerRadius} />
         </ModelGroup>
       )}
 
