@@ -21,6 +21,16 @@ export function InfoPanel() {
       <dl className="info-grid">
         <dt>File</dt>
         <dd title={doc.meta.sourceFileName}>{doc.meta.sourceFileName}</dd>
+        {doc.meta.import && (
+          <>
+            <dt>Source</dt>
+            <dd data-testid="source-info">
+              {doc.meta.import.format.toUpperCase()} · {doc.meta.import.units}
+              {doc.meta.import.upAxis === 'y' ? ' · Y-up→Z-up' : ''}
+              {doc.meta.import.unitsSource === 'guess' && <small className="warn"> (units guessed)</small>}
+            </dd>
+          </>
+        )}
         <dt>Scan</dt>
         <dd>{doc.scan ? `${SCAN_TYPE_LABEL[doc.scan.type]} · ${SIDE_LABEL[doc.scan.side]}` : '—'}</dd>
         {stats ? (

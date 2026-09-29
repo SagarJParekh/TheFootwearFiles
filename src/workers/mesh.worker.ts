@@ -14,7 +14,6 @@ import Module, { type ManifoldToplevel } from 'manifold-3d';
 import manifoldWasmUrl from 'manifold-3d/manifold.wasm?url';
 import type { ProjectDocument } from '../core/document';
 import { deserializeProject, serializeProject } from '../core/io/project';
-import { parseStl } from '../core/io/stlParse';
 import { writeBinaryStl } from '../core/io/stlWrite';
 import { transformPositions } from '../core/math/transform';
 import { analyzeMesh } from '../core/mesh/analyze';
@@ -24,9 +23,14 @@ import { fillHoles, type FillOptions } from '../core/mesh/fill/fillHoles';
 import { findBoundaryLoops, suggestExcludedLoops } from '../core/mesh/holes';
 import { manifoldTrim } from '../core/mesh/manifoldCut';
 import { computeVertexNormals } from '../core/mesh/normals';
-import { weldSoup } from '../core/mesh/weld';
 import type { MeshData, MeshStats, Plane, RigidTransform, Vec3 } from '../core/types';
 import { MESH_NOT_CACHED, type MeshRef } from './meshRef';
+import type { ImportInfo } from '../core/units';
+import { finishImport, type ImportOverrides } from '../formats/finishImport';
+import { FORMATS, type FormatInfo } from '../formats/registry';
+import {
+  parse3dmModel, parseCadModel, parseObjModel, parseOffModel, parsePlyModel, parseStlModel, type ParsedModel,
+} from '../formats/workerParsers';
 
 /** Hole description sent to the UI (loop polyline instead of vertex indices). */
 export interface HoleInfo {
@@ -85,14 +89,44 @@ function transferMesh<T extends object>(result: T, ...meshes: MeshData[]): T {
   );
 }
 
+export interface LoadResult {
+  mesh: MeshData;
+  stats: MeshStats;
+  normals: Float32Array;
+  info: ImportInfo;
+  detail?: string;
+}
+
+function finish(parsed: ParsedModel, format: FormatInfo, overrides: ImportOverrides): LoadResult {
+  const { mesh, info } = finishImport(parsed, format, overrides);
+  const stats = analyzeMesh(mesh);
+  const normals = computeVertexNormals(mesh);
+  return Comlink.transfer(transferMesh({ mesh, stats, normals, info, detail: parsed.detail }, mesh), [normals.buffer]);
+}
+
 const api = {
-  async loadStl(buffer: ArrayBuffer): Promise<{ mesh: MeshData; stats: MeshStats; format: 'binary' | 'ascii'; normals: Float32Array }> {
-    const { soup, format } = parseStl(buffer);
-    if (soup.length === 0) throw new Error('STL contains no triangles');
-    const mesh = weldSoup(soup);
-    const stats = analyzeMesh(mesh);
-    const normals = computeVertexNormals(mesh);
-    return Comlink.transfer(transferMesh({ mesh, stats, format, normals }, mesh), [normals.buffer]);
+  /** Parses a worker-side format (STL, OBJ, PLY, OFF, STEP, IGES, BREP, 3DM). */
+  async loadModel(buffer: ArrayBuffer, formatId: string, overrides: ImportOverrides = {}): Promise<LoadResult> {
+    const format = FORMATS.find((f) => f.id === formatId);
+    if (!format) throw new Error(`Unknown format ${formatId}`);
+    let parsed: ParsedModel;
+    switch (format.id) {
+      case 'stl': parsed = parseStlModel(buffer); break;
+      case 'obj': parsed = parseObjModel(buffer); break;
+      case 'ply': parsed = parsePlyModel(buffer); break;
+      case 'off': parsed = parseOffModel(buffer); break;
+      case 'step': case 'iges': case 'brep': parsed = await parseCadModel(buffer, format.id); break;
+      case '3dm': parsed = await parse3dmModel(buffer); break;
+      default: throw new Error(`${format.label} must be parsed on the main thread`);
+    }
+    return finish(parsed, format, overrides);
+  },
+
+  /** Finishes an import whose parsing happened on the main thread (DOM-based loaders). */
+  async loadSoup(parsed: ParsedModel, formatId: string, overrides: ImportOverrides = {}): Promise<LoadResult> {
+    const format = FORMATS.find((f) => f.id === formatId);
+    if (!format) throw new Error(`Unknown format ${formatId}`);
+    return finish(parsed, format, overrides);
   },
 
   async analyze(ref: MeshRef): Promise<MeshStats> {

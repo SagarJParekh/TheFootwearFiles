@@ -5,7 +5,10 @@
 import { newDocument } from '../core/document';
 import { computeBounds } from '../core/mesh/analyze';
 import { eulerDegToQuat, quatToEulerDeg, rotateVector, transformPositions } from '../core/math/transform';
-import { IDENTITY_TRANSFORM, type MeshData, type RigidTransform, type Vec3 } from '../core/types';
+import { IDENTITY_TRANSFORM, makeMesh, type MeshData, type RigidTransform, type Vec3 } from '../core/types';
+import { reinterpretation, UNIT_LABEL, UNIT_TO_MM, type LengthUnit, type UpAxis } from '../core/units';
+import { formatForFile, unsupportedMessage } from '../formats/registry';
+import type { LoadResult } from '../workers/mesh.worker';
 import * as Comlink from 'comlink';
 import { meshWorker, withMesh } from '../workers/meshClient';
 import { commit, requestCamera, resetDocument, useStore, type MeshDerived } from './store';
@@ -69,23 +72,71 @@ useStore.subscribe((state, prev) => {
 // Loading
 // ---------------------------------------------------------------------------
 
-export async function loadStlFile(file: File): Promise<void> {
+/**
+ * Loads any supported model file. Worker-side formats are parsed entirely off the main thread;
+ * DOM-dependent formats (3MF, AMF, glTF, COLLADA, FBX, 3DS, VRML) are parsed here with Three.js
+ * loaders and the resulting triangle soup is handed to the worker.
+ */
+export async function loadModelFile(file: File): Promise<void> {
+  const format = formatForFile(file.name);
+  if (!format) {
+    set({ error: unsupportedMessage(file.name) });
+    return;
+  }
   await withBusy(`Loading ${file.name}`, async () => {
     const buffer = await file.arrayBuffer();
-    // transfer (not copy) the file buffer – it can be hundreds of MB
-    const { mesh, stats, normals, format } = await meshWorker().loadStl(Comlink.transfer(buffer, [buffer]));
+    let result: LoadResult;
+    if (format.thread === 'worker') {
+      // transfer (not copy) the file buffer – it can be hundreds of MB
+      result = await meshWorker().loadModel(Comlink.transfer(buffer, [buffer]), format.id);
+    } else {
+      const { MAIN_THREAD_PARSERS } = await import('../formats/mainParsers');
+      const parsed = await MAIN_THREAD_PARSERS[format.id](buffer);
+      result = await meshWorker().loadSoup(Comlink.transfer(parsed, [parsed.soup.buffer as ArrayBuffer]), format.id);
+    }
+    const { mesh, stats, normals, info, detail } = result;
     cacheDerived({ meshId: mesh.id, stats, normals });
     set({ derived: derivedCache.get(mesh.id)! });
-    resetDocument(newDocument(mesh, file.name));
+    resetDocument(newDocument(mesh, file.name, info));
+    const unitNote = info.units === 'mm' ? '' : `, converted from ${UNIT_LABEL[info.units].toLowerCase()}`;
     set({
       scanDialogOpen: true,
       tool: 'none',
       activeLandmark: null,
       offSurface: {},
-      notice: `Loaded ${file.name} (${format}, ${stats.triangleCount.toLocaleString()} triangles)`,
+      notice: `Loaded ${file.name} (${format.label}${detail ? `, ${detail}` : ''}${unitNote}, ${stats.triangleCount.toLocaleString()} triangles)`,
     });
     requestCamera('fit');
   });
+}
+
+/**
+ * Changes how the source file is interpreted (units / up axis) after loading. The mesh,
+ * landmarks and translation are converted; undoable.
+ */
+export function reinterpretImport(units: LengthUnit, upAxis: UpAxis): void {
+  const doc = get().doc;
+  const from = doc?.meta.import;
+  if (!doc || !from || (from.units === units && from.upAxis === upAxis)) return;
+  const r = reinterpretation(from, { units, upAxis });
+  const s = UNIT_TO_MM[units] / UNIT_TO_MM[from.units];
+  commit(`Units/axis: ${UNIT_LABEL[units]}, ${upAxis.toUpperCase()} up`, (d) => ({
+    ...d,
+    meta: {
+      ...d.meta,
+      import: {
+        ...from,
+        units,
+        upAxis,
+        unitsSource: units !== from.units ? 'user' : from.unitsSource,
+        upAxisSource: upAxis !== from.upAxis ? 'user' : from.upAxisSource,
+      },
+    },
+    mesh: makeMesh(r.positions(d.mesh.positions), d.mesh.indices),
+    landmarks: Object.fromEntries(Object.entries(d.landmarks).map(([id, l]) => [id, { ...l!, local: r.point(l!.local) }])),
+    transform: { ...d.transform, position: [d.transform.position[0] * s, d.transform.position[1] * s, d.transform.position[2] * s] },
+  }));
+  requestCamera('fit');
 }
 
 /** Opens a .tffproj project (mesh + transform + landmarks + scan info). */

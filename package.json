@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "fixtures": "tsx scripts/generate-fixtures.ts",
-    "e2e": "node e2e/smoke.mjs"
+    "e2e": "node e2e/smoke.mjs && node e2e/formats.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
@@ -20,8 +20,10 @@
     "earcut": "^3.2.4",
     "fflate": "^0.8.3",
     "manifold-3d": "^3.5.4",
+    "occt-import-js": "^0.0.23",
     "react": "~19.2.0",
     "react-dom": "~19.2.0",
+    "rhino3dm": "^8.35.0",
     "three": "^0.186.1",
     "three-mesh-bvh": "^0.8.3",
     "zustand": "^5.0.15"

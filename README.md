@@ -18,8 +18,8 @@ npm run dev          # http://localhost:5173
 | `npm run dev` | Vite dev server |
 | `npm run build` | Type-check + production build into `dist/` |
 | `npm test` | Unit tests (Vitest) for the mesh / IO / landmark logic |
-| `npm run e2e` | End-to-end smoke test: headless Chromium via Playwright, runs load → landmark → fill → cut → undo/redo → export |
-| `npm run fixtures` | Regenerates the sample STLs in `public/samples/` (`-- --large` also writes a 1.3M-triangle sphere) |
+| `npm run e2e` | Browser tests in headless Chromium via Playwright. `e2e/smoke.mjs` runs load → landmark → fill → cut → undo/redo → export. `e2e/formats.mjs` imports the same foot in every format and checks size, orientation and units |
+| `npm run fixtures` | Regenerates the sample STLs in `public/samples/` and the per-format fixtures in `fixtures/formats/` (`-- --large` also writes a 1.3M-triangle sphere) |
 
 To try the app without a real scan, use the **Samples** menu:
 
@@ -34,10 +34,9 @@ To try the app without a real scan, use the **Samples** menu:
 ## Features
 
 **Load, view, transform**
-- STL loading:
-  - Binary and ASCII STL, from the file picker or by drag-and-drop anywhere in the window.
-  - Parsing, vertex welding, analysis and normals all run in a Web Worker.
-  - The file buffer is transferred to the worker, not copied.
+- Model loading from the file picker or by drag-and-drop anywhere in the window. See [Supported file formats](#supported-file-formats) for the list.
+  - Parsing, vertex welding, analysis and normals run in a Web Worker for most formats; the file buffer is transferred to the worker, not copied.
+  - Everything is converted to millimetres, Z up. Units and up axis are read from the file where the format defines them, otherwise guessed from the model size, and can be corrected in **Scan setup**.
 - Camera:
   - Orbit, pan and zoom; fit to view (`F`).
   - Preset views: top, plantar, medial, lateral, front, back, iso. Medial and lateral follow the Left/Right choice.
@@ -85,6 +84,37 @@ To try the app without a real scan, use the **Samples** menu:
 - **Landmarks:** export as **JSON** or **CSV**, and import from JSON.
 - **Project file:** save and open a whole session (mesh, transform, landmarks, scan info) as a `.tffproj` file.
 - Files can also be opened by dropping `.stl`, `.tffproj` or landmark `.json` files onto the window.
+
+## Supported file formats
+
+| Format | Extensions | Parsed by | Units | Up axis |
+| --- | --- | --- | --- | --- |
+| STL (binary / ASCII) | `.stl` | own parser (worker) | none → assumed mm¹ | Z |
+| Wavefront OBJ | `.obj` | Three.js OBJLoader (worker) | none → assumed mm¹ | Z² |
+| Stanford PLY (ASCII / binary) | `.ply` | Three.js PLYLoader (worker) | none → assumed mm¹ | Z² |
+| OFF | `.off` | own parser (worker) | none → assumed mm¹ | Z² |
+| 3MF | `.3mf` | Three.js 3MFLoader (main thread) | from the file's `unit` attribute | Z |
+| AMF | `.amf` | Three.js AMFLoader (main thread) | from the file's `unit` attribute | Z |
+| glTF / GLB (incl. Draco & meshopt compression) | `.gltf`, `.glb` | Three.js GLTFLoader (main thread) | metres (spec) | Y → converted |
+| COLLADA | `.dae` | Three.js ColladaLoader (main thread) | from `<unit meter>` | from `<up_axis>` |
+| FBX | `.fbx` | Three.js FBXLoader (main thread) | from `UnitScaleFactor` | Y → converted |
+| 3DS | `.3ds` | Three.js TDSLoader (main thread) | none → guessed¹ | Z |
+| VRML 97 | `.wrl`, `.vrml` | Three.js VRMLLoader (main thread) | metres (spec) | Y → converted |
+| STEP | `.step`, `.stp` | OpenCASCADE via occt-import-js (WASM, worker) | from the file | Z |
+| IGES | `.iges`, `.igs` | OpenCASCADE (WASM, worker) | from the file | Z |
+| OpenCASCADE BREP | `.brep`, `.brp` | OpenCASCADE (WASM, worker) | none → guessed¹ | Z |
+| Rhino | `.3dm` | rhino3dm (WASM, worker) | from the model unit system | Z |
+
+¹ Formats without units are taken as millimetres unless the model would be implausibly small for a foot. Under 2.5 units across it's treated as metres; under 70 as centimetres. The Scan setup dialog shows the guess and the resulting size so you can correct it.
+² These formats have no fixed up axis. Choose **Y up** in Scan setup if the scan arrives lying on its side.
+
+**How some formats are handled**
+- **STEP / IGES:** curved CAD surfaces are tessellated with 0.05 mm chordal and 0.1 rad angular deflection.
+- **3DM:** Rhino files use the render meshes stored in the file. rhino3dm cannot tessellate NURBS itself, so files saved with "Save Small" have nothing to show; the app says so.
+- **Multi-part files:** all parts are merged into one mesh, with node transforms applied. Colours, textures, points and curves are ignored.
+- **Point clouds** (PLY without faces, `.xyz`, `.pcd`) are rejected with a message to mesh them first.
+- **Not readable:** Fusion 360 `.f3d`, SolidWorks, Inventor, CATIA, Creo/NX, Parasolid and SketchUp native files are proprietary, and no browser library can open them. Opening one shows which export to use instead (e.g. in Fusion 360: *File → Export → STEP* or *STL*).
+- **WASM loading:** the large WASM libraries (OpenCASCADE 7.6 MB, rhino3dm 2.7 MB) are only downloaded the first time a file of that type is opened.
 
 ## Conventions
 
@@ -160,7 +190,7 @@ src/
 
 ## Tests
 
-- `npm test`: 48 unit tests covering:
+- `npm test`: 65 unit tests covering:
   - STL round-trips (binary and ASCII, the "solid"-header binary edge case, malformed input), welding, watertight and non-manifold detection
   - transform maths
   - hole detection: counts, perimeters, pinch splitting, rim suggestion
@@ -170,12 +200,19 @@ src/
   - landmark JSON/CSV serialisation and import fallback
   - measurements, including arch height to a tilted plane
   - project round-trip and corrupt-file rejection
-- `npm run e2e`: browser smoke test of the main workflow.
+  - file formats: OBJ (quads, negative indices), PLY (ASCII, binary, point-cloud rejection), OFF, 3DM, STEP/IGES (including metre and inch files), unit guessing, Y-up conversion and re-interpretation
+- `npm run e2e`: browser smoke test of the main workflow, plus an import test of every format fixture (3MF, AMF, glTF/GLB, DAE, VRML, 3DM, STEP, IGES, …).
 
 ## Known limitations
 
 - **Scale:** the pipeline was checked with a synthetic 5.2M-triangle mesh in headless Chromium with software GL. Parsing and analysis took about 5 s in the worker, and a capped cut took about 2 s. It has not been profiled on a real GPU with real 3M-triangle scans; wireframe on more than 1M triangles will be slow.
-- **Transforms:** the transform is rigid; there is no scaling. Units are assumed to be mm, with no unit detection.
+- **Transforms:** the transform is rigid; there is no scaling. File units are converted on import; unit-less formats are guessed from size, so check the size shown in Scan setup.
+- **Formats:**
+  - 3MF, AMF, glTF, DAE, FBX, 3DS and VRML are parsed on the main thread (their loaders need the browser's XML parser), so a very large file in these formats freezes the UI while it loads. Large scans are normally STL, OBJ or PLY, which parse in the worker.
+  - A `.gltf` whose data is in a separate `.bin` file can't be opened on its own; use `.glb` or an embedded `.gltf`.
+  - FBX, 3DS and BREP import use standard loaders but have no automated fixture tests.
+  - Only STL is exported.
+  - occt-import-js is LGPL-2.1; it is loaded as a separate, unmodified WASM module.
 - **Cut caps:**
   - Caps are flat triangulations of the section loop with no interior vertices, so large caps have long, thin triangles.
   - Where the plane crosses an existing open boundary, the section is an open curve and cannot be capped. The app reports this.

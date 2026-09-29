@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { exportStl, loadStlFile, saveProject } from '../state/actions';
+import { exportStl, loadModelFile, saveProject } from '../state/actions';
+import { ACCEPT } from '../formats/registry';
 import { downloadBlob } from './common';
 import { redoEdit, requestCamera, undoEdit, useStore, type ViewPreset } from '../state/store';
 import { openAnyFile } from '../state/fileOpen';
@@ -16,7 +17,7 @@ export async function loadSample(file: string) {
   const res = await fetch(`${import.meta.env.BASE_URL}samples/${file}`);
   if (!res.ok) throw new Error(`Sample ${file} not found`);
   const blob = await res.blob();
-  await loadStlFile(new File([blob], file));
+  await loadModelFile(new File([blob], file));
 }
 
 const PRESETS: { id: ViewPreset; label: string; title: string }[] = [
@@ -41,13 +42,13 @@ export function Toolbar({ right }: { right?: React.ReactNode }) {
   return (
     <div className="toolbar">
       <span className="brand">Footwear Files</span>
-      <button onClick={() => inputRef.current?.click()} title="Open STL, project (.tffproj) or landmarks (.json)">
+      <button onClick={() => inputRef.current?.click()} title="Open a 3D model (STL, OBJ, PLY, 3MF, AMF, glTF/GLB, STEP, IGES, 3DM, …), a .tffproj project or landmarks .json">
         Open…
       </button>
       <input
         ref={inputRef}
         type="file"
-        accept=".stl,.tffproj,.json"
+        accept={ACCEPT}
         hidden
         data-testid="file-input"
         onChange={(e) => {

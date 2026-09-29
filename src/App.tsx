@@ -62,14 +62,17 @@ export default function App() {
           ) : (
             <div className="empty-hint">
               <h3>No model loaded</h3>
-              <p>Drop an STL file anywhere, use <b>Open…</b>, or pick one of the <b>Samples</b>.</p>
-              <p className="hint">Units are millimetres. Binary and ASCII STL are supported.</p>
+              <p>Drop a 3D file anywhere, use <b>Open…</b>, or pick one of the <b>Samples</b>.</p>
+              <p className="hint">
+                Supported: STL, OBJ, PLY, OFF, 3MF, AMF, glTF/GLB, COLLADA (DAE), FBX, 3DS, VRML, STEP/STP, IGES,
+                BREP and Rhino 3DM. Everything is converted to millimetres, Z up.
+              </p>
             </div>
           )}
         </aside>
         <div className={`viewport tool-${tool}`}>
           <Viewport />
-          {dragOver && <div className="drop-overlay">Drop STL, project or landmarks JSON</div>}
+          {dragOver && <div className="drop-overlay">Drop a 3D model, project or landmarks JSON</div>}
         </div>
         {hasDoc && (
           <aside className="sidebar right">

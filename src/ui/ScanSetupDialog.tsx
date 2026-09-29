@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { SCAN_TYPE_LABEL, SIDE_LABEL, landmarksForScanType, type ScanType, type Side } from '../core/landmarks/definitions';
+import { UNIT_LABEL, UNIT_TO_MM, type LengthUnit, type UpAxis } from '../core/units';
+import { reinterpretImport } from '../state/actions';
+import { emptyHistory } from '../state/history';
 import { commit, useStore } from '../state/store';
+
+const UNITS: LengthUnit[] = ['mm', 'cm', 'm', 'in', 'ft'];
+const SOURCE_NOTE = { file: 'from the file', guess: 'guessed from the model size – please check', user: 'set by you' } as const;
 
 /** Asked on load: which scan type (decides the landmark set) and which foot. */
 export function ScanSetupDialog() {
@@ -8,21 +14,29 @@ export function ScanSetupDialog() {
   const current = useStore((s) => s.doc?.scan);
   const [type, setType] = useState<ScanType>(current?.type ?? 'plantar');
   const [side, setSide] = useState<Side>(current?.side ?? 'right');
+  const importInfo = useStore((s) => s.doc?.meta.import);
+  const bounds = useStore((s) => s.derived?.stats.bounds);
+  const [units, setUnits] = useState<LengthUnit>(importInfo?.units ?? 'mm');
+  const [upAxis, setUpAxis] = useState<UpAxis>(importInfo?.upAxis ?? 'z');
 
   useEffect(() => {
     if (open) {
       setType(current?.type ?? 'plantar');
       setSide(current?.side ?? 'right');
+      setUnits(importInfo?.units ?? 'mm');
+      setUpAxis(importInfo?.upAxis ?? 'z');
     }
-  }, [open, current]);
+  }, [open, current, importInfo]);
 
   if (!open) return null;
 
   const confirm = () => {
+    const firstTime = !useStore.getState().doc?.scan;
+    reinterpretImport(units, upAxis);
     const doc = useStore.getState().doc;
-    if (doc && !doc.scan) {
+    if (doc && firstTime) {
       // First-time setup right after loading is part of the load, not an undoable edit.
-      useStore.setState({ doc: { ...doc, scan: { type, side } }, scanDialogOpen: false });
+      useStore.setState({ doc: { ...doc, scan: { type, side } }, scanDialogOpen: false, history: emptyHistory() });
       return;
     }
     commit('Scan setup', (doc) => {
@@ -58,6 +72,46 @@ export function ScanSetupDialog() {
             </label>
           ))}
         </fieldset>
+        {importInfo && (
+          <fieldset>
+            <legend>File interpretation</legend>
+            <div className="row">
+              <label>
+                Units
+                <select value={units} onChange={(e) => setUnits(e.target.value as LengthUnit)} data-testid="units-select">
+                  {UNITS.map((u) => (
+                    <option key={u} value={u}>
+                      {UNIT_LABEL[u]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Up axis
+                <select value={upAxis} onChange={(e) => setUpAxis(e.target.value as UpAxis)}>
+                  <option value="z">Z up</option>
+                  <option value="y">Y up</option>
+                </select>
+              </label>
+            </div>
+            <p className="hint" style={{ marginTop: 0 }}>
+              Units {SOURCE_NOTE[units === importInfo.units ? importInfo.unitsSource : 'user']}.
+              {bounds && (
+                <>
+                  {' '}
+                  Size in mm:{' '}
+                  <b data-testid="setup-size">
+                    {bounds.max
+                      .map((v, i) => ((v - bounds.min[i]) * UNIT_TO_MM[units]) / UNIT_TO_MM[importInfo.units])
+                      .map((v) => v.toFixed(0))
+                      .join(' × ')}
+                  </b>
+                  {' '}(a foot is ~220–300 mm long).
+                </>
+              )}
+            </p>
+          </fieldset>
+        )}
         <p className="hint">
           Coordinate convention: Z up, +Y towards the toes, +X to the patient's right. Side decides which way the
           medial/lateral views look.

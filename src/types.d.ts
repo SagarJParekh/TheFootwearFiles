@@ -7,3 +7,12 @@ declare module 'three-mesh-bvh/src/workers/GenerateMeshBVHWorker.js' {
     dispose(): void;
   }
 }
+
+declare module 'occt-import-js' {
+  const init: (module?: { locateFile?: (path: string) => string }) => Promise<unknown>;
+  export default init;
+}
+declare module 'rhino3dm/rhino3dm.module.js' {
+  const init: (module?: { locateFile?: (path: string) => string }) => Promise<unknown>;
+  export default init;
+}
