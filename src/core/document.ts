@@ -1,6 +1,7 @@
 import type { LandmarkId, ScanType, Side } from './landmarks/definitions';
 import type { ImportInfo } from './units';
 import type { InsoleParams } from './insole/params';
+import type { FootwearParams } from './footwear/params';
 import { IDENTITY_TRANSFORM, type MeshData, type RigidTransform, type Vec3 } from './types';
 
 export interface PlacedLandmark {
@@ -38,6 +39,8 @@ export interface ProjectDocument {
   footArchAdjust?: number;
   /** Insole / orthosis design parameters (null until "Create the insole"). */
   insole?: InsoleParams | null;
+  /** Footwear (shoe / chappal) design parameters (null until "Create the footwear"). */
+  footwear?: FootwearParams | null;
 }
 
 export function newDocument(mesh: MeshData, sourceFileName: string, importInfo?: ImportInfo): ProjectDocument {
@@ -48,5 +51,6 @@ export function newDocument(mesh: MeshData, sourceFileName: string, importInfo?:
     transform: { ...IDENTITY_TRANSFORM },
     landmarks: {},
     insole: null,
+    footwear: null,
   };
 }

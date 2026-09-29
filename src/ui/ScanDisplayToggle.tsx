@@ -29,10 +29,10 @@ export function ScanDisplayToggle({ compact = false }: { compact?: boolean }) {
   );
 }
 
-/** Floating toggle over the viewport, shown once an insole exists. */
+/** Floating toggle over the viewport, shown once an insole or footwear exists. */
 export function ViewportScanToggle() {
-  const hasInsole = useStore((s) => !!s.doc?.insole);
-  if (!hasInsole) return null;
+  const hasDesign = useStore((s) => !!(s.designCategory === 'footwear' ? s.doc?.footwear : s.doc?.insole));
+  if (!hasDesign) return null;
   return (
     <div className="viewport-overlay top-left">
       <span>Foot:</span>

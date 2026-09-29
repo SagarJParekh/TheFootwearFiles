@@ -30,6 +30,9 @@ import type { ImportInfo } from '../core/units';
 import { generateInsole, samplePlantarSurface, type InsoleResult, type PlantarSurface } from '../core/insole/generate';
 import type { InsoleParams } from '../core/insole/params';
 import type { FrameLandmarks } from '../core/insole/frame';
+import { generateFootwear, prepareFootData, type FootData, type FootwearResult } from '../core/footwear/generate';
+import { mergeFootwear } from '../core/footwear/merge';
+import type { FootwearParams } from '../core/footwear/params';
 
 // Plantar surface sampling is the slow part (rasterising the whole scan) – cache the latest.
 let plantarCache: { key: string; surface: PlantarSurface } | null = null;
@@ -42,6 +45,25 @@ function plantarSurface(mesh: MeshData, transform: RigidTransform, landmarks: Fr
 }
 
 export type InsoleOutput = Omit<InsoleResult, 'mesh'> & { mesh: MeshData; normals: Float32Array };
+
+// Footwear: per-scan data (dorsum raster, silhouette, BVH) and the last generated parts (for export).
+let footCache: { key: string; data: FootData } | null = null;
+function footData(mesh: MeshData, transform: RigidTransform, landmarks: FrameLandmarks): FootData {
+  const key = `${mesh.id}|${JSON.stringify(transform)}|${JSON.stringify(landmarks)}`;
+  if (footCache?.key !== key) {
+    const surface = plantarSurface(mesh, transform, landmarks);
+    footCache = { key, data: prepareFootData(surface, transformPositions(mesh.positions, transform), mesh.indices) };
+  }
+  return footCache.data;
+}
+let lastFootwear: { key: string; result: FootwearResult } | null = null;
+function footwear(mesh: MeshData, transform: RigidTransform, landmarks: FrameLandmarks, params: FootwearParams): FootwearResult {
+  const key = `${mesh.id}|${JSON.stringify(transform)}|${JSON.stringify(landmarks)}|${JSON.stringify(params)}`;
+  if (lastFootwear?.key !== key) lastFootwear = { key, result: generateFootwear(footData(mesh, transform, landmarks), params) };
+  return lastFootwear.result;
+}
+
+export type FootwearOutput = Omit<FootwearResult, 'mesh' | 'parts'> & { mesh: MeshData; normals: Float32Array };
 import { finishImport, type ImportOverrides } from '../formats/finishImport';
 import { FORMATS, type FormatInfo } from '../formats/registry';
 import {
@@ -207,6 +229,25 @@ const api = {
     const r = generateInsole(plantarSurface(resolve(ref), transform, landmarks), params);
     const normals = computeVertexNormals(r.mesh);
     return Comlink.transfer(transferMesh({ ...r, normals }, r.mesh), [normals.buffer]);
+  },
+
+  /** Generates the footwear (shoe / chappal) for the given parameters (world coordinates). */
+  async generateFootwear(ref: MeshRef, transform: RigidTransform, landmarks: FrameLandmarks, params: FootwearParams): Promise<FootwearOutput> {
+    const { mesh: _mesh, parts: _parts, ...rest } = footwear(resolve(ref), transform, landmarks, params);
+    const mesh = makeMesh(_mesh.positions.slice(), _mesh.indices.slice());
+    const normals = computeVertexNormals(mesh);
+    return Comlink.transfer({ ...rest, mesh, normals }, [mesh.positions.buffer, mesh.indices.buffer, normals.buffer]);
+  },
+
+  /**
+   * Footwear STL. `merge` = one watertight solid (manifold-3d union, slow); otherwise the
+   * overlapping closed parts, which slicers union themselves.
+   */
+  async exportFootwearStl(ref: MeshRef, transform: RigidTransform, landmarks: FrameLandmarks, params: FootwearParams, merge: boolean): Promise<ArrayBuffer> {
+    const r = footwear(resolve(ref), transform, landmarks, params);
+    const mesh = merge ? mergeFootwear(await manifold(), r.parts) : r.mesh;
+    const buf = writeBinaryStl({ positions: mesh.positions, indices: mesh.indices });
+    return Comlink.transfer(buf, [buf]);
   },
 
   async findHoles(ref: MeshRef): Promise<HoleInfo[]> {

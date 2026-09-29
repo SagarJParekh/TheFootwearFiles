@@ -183,3 +183,10 @@ fieldset.plain:disabled { opacity: 0.5; }
 .type-card.active { border-color: #22a652; background: #eaf7ef; }
 .type-card span { display: flex; flex-direction: column; }
 .type-card small { color: var(--muted); font-size: 11px; }
+.type-choice.three { grid-template-columns: 1fr; }
+.type-choice.three .type-card { padding: 5px 7px; }
+.rule-box { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; margin-bottom: 8px; background: #fafbfc; }
+.rule-box .rule { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 2px 0; }
+.rule-box .rule.ok span { color: #1f7a3d; }
+.rule-box .rule.bad span { color: #c0392b; }
+.hint.warn { color: #9a5b00; }

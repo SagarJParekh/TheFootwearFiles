@@ -3,6 +3,7 @@ import type { LandmarkMap, ProjectDocument, ScanInfo } from '../document';
 import { LANDMARK_BY_ID, type LandmarkId } from '../landmarks/definitions';
 import { makeMesh, type RigidTransform } from '../types';
 import { normalizeInsoleParams, type InsoleParams } from '../insole/params';
+import { normalizeFootwearParams, type FootwearParams } from '../footwear/params';
 
 /**
  * Project file (.tffproj): a zip containing
@@ -22,6 +23,7 @@ interface ProjectJson {
   transform: RigidTransform;
   landmarks: LandmarkMap;
   insole?: InsoleParams | null;
+  footwear?: FootwearParams | null;
   basePlaneLocked?: boolean;
   footArchAdjust?: number;
   mesh: { vertexCount: number; triangleCount: number; positions: string; indices: string };
@@ -56,6 +58,7 @@ export function serializeProject(doc: ProjectDocument, savedAt = new Date().toIS
     transform: doc.transform,
     landmarks: doc.landmarks,
     insole: doc.insole ?? null,
+    footwear: doc.footwear ?? null,
     basePlaneLocked: !!doc.basePlaneLocked,
     footArchAdjust: doc.footArchAdjust ?? 0,
     mesh: {
@@ -110,6 +113,7 @@ export function deserializeProject(data: Uint8Array): ProjectDocument {
     landmarks,
     basePlaneLocked: !!json.basePlaneLocked,
     insole: json.insole ? normalizeInsoleParams(json.insole) : null,
+    footwear: json.footwear ? normalizeFootwearParams(json.footwear) : null,
     footArchAdjust: typeof json.footArchAdjust === 'number' ? json.footArchAdjust : 0,
   };
 }

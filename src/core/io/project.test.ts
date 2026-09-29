@@ -4,6 +4,7 @@ import { newDocument } from '../document';
 import { sphereWithHoles } from '../fixtures/primitives';
 import { eulerDegToQuat } from '../math/transform';
 import { defaultInsoleParams, normalizeInsoleParams } from '../insole/params';
+import { defaultFootwearParams } from '../footwear/params';
 import { deserializeProject, serializeProject } from './project';
 
 describe('project files', () => {
@@ -35,6 +36,19 @@ describe('project files', () => {
     expect(back.insole).toEqual(insole);
     expect(back.footArchAdjust).toBe(4.5);
     expect(deserializeProject(serializeProject(newDocument(sphereWithHoles(), 'x.stl'))).insole).toBeNull();
+  });
+
+  it('round-trips the footwear design next to the insole', () => {
+    const footwear = defaultFootwearParams(7, 'chappal');
+    footwear.chappalStyle = 'splitToe';
+    footwear.clearance = 1.2;
+    footwear.strutDiameter = 1.7;
+    footwear.tread = 'waves';
+    const doc = { ...newDocument(sphereWithHoles(), 'x.stl'), insole: defaultInsoleParams(7), footwear };
+    const back = deserializeProject(serializeProject(doc));
+    expect(back.footwear).toEqual(footwear);
+    expect(back.insole).toEqual(doc.insole);
+    expect(deserializeProject(serializeProject(newDocument(sphereWithHoles(), 'x.stl'))).footwear).toBeNull();
   });
 
   it('upgrades designs saved with the older soft-insole / orthosis model', () => {

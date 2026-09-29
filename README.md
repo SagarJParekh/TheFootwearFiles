@@ -97,7 +97,7 @@ As soon as the **heel centre**, **1st metatarsal head** and **5th metatarsal hea
 - **Releasing:** **Release base plane** unlocks the model on purpose.
 - The lock can be undone like any other edit and is saved in project files.
 
-## Insole designer (right sidebar → "Insole designer")
+## Insole designer (right sidebar → "Insole & footwear")
 
 This follows the reference orthotic-design workflow step by step, built around how the insole will be **manufactured**. Every change can be undone.
 
@@ -176,6 +176,53 @@ On a 3/4 insole the bar is moved back just enough to fit completely in front of 
 4. Marching squares over the outline builds a closed solid, so the edges are smooth rather than stair-stepped.
 
 Regenerating takes about 0.5 s and runs in the worker whenever a setting changes.
+
+## Footwear designer (same tab → "2 · What to design" → **Footwear**)
+
+Footwear is the third category, after the full length and 3/4 insoles. It uses the same scan, landmarks, base plane and foot arch adjustment. Choose **Chappal** or **Shoe**, then **Create**. Every change can be undone and is saved with the project.
+
+**Design rules** (enforced and checked):
+
+| Rule | How it is enforced | How it is checked |
+| --- | --- | --- |
+| Lattice strut diameter **1.2–1.8 mm** | The slider cannot leave this range, and saved projects are clamped into it | Every strut of the generated lattice (the solid collar rim of a shoe is not lattice) |
+| Clearance between the foot and the footwear **1–2 mm** | The slider cannot leave this range. The footbed, straps and upper are built at this distance from the foot. | Measured against the scan (BVH nearest point) on every lattice node, every strut midpoint of the upper and the solid parts near the foot. Parts that end up too close are moved clear. The result is shown as ✔/✘ with a ±0.1 mm tolerance. |
+
+**Chappal** (like the slides and thongs in the reference photos):
+
+| Part | What it is |
+| --- | --- |
+| Footbed | The top of a conformal **tetrahedral lattice**: triangular layers stacked between the outsole and the footbed, following the foot (toes included) at the clearance |
+| Outsole | Solid plate on a flat base with toe spring and an optional tread (hexagon / diamond / waves) |
+| Rim | Solid wall around the outline, higher at the heel (heel cup) |
+| Style | **Slide:** one wide solid strap over the instep, adjustable width and position. **Thong:** Y-strap plus a toe post between the 1st and 2nd toes. **Split-toe thong:** the same, with the sole split between the big toe and the others. |
+
+Straps are the top of the foot offset outward by the clearance, then by the strap thickness. If the scan's toes aren't separated, the toe post overlaps them; this is reported as a warning.
+
+**Shoe** (like the lattice shoes in the reference photos): the same lattice sole, plus a **lattice upper** laid over the foot at the clearance. The upper has a slip-on collar opening (collar height and throat position), a solid collar rim and struts tying it down into the sole. The sole side is an open lattice cage by default; it can be switched to a solid wall.
+
+| Setting | Range | Default |
+| --- | --- | --- |
+| Clearance to the foot | 1–2 mm | 1.5 |
+| Lattice strut diameter | 1.2–1.8 mm | 1.5 |
+| Lattice cell size | 4–10 mm | 6 |
+| Sole thickness (thinnest point) / outsole | 8–35 / 1.5–4 mm | 16 (chappal), 14 (shoe) / 2.5 |
+| Toe spring, rim height, rim wall, toe allowance | 0–15, 0–25, 1.5–4, 0–20 mm | kind-specific |
+| Strap width / position / thickness (slide), arm width (thong) | 30–100 mm / 45–80 % / 2–5 mm, 12–35 mm | 65 / 60 % / 3, 20 |
+| Collar height / throat / collar rim (shoe) | 25–90 mm / 40–75 % / 2–4 mm | 45 / 58 % / 3 |
+
+**Download:**
+
+- The default export is the parts as overlapping closed shells. It is fast, and slicers union overlapping shells when they slice.
+- **Merge into one watertight solid** unions everything with manifold-3d instead. This takes from a few seconds to about a minute, depending on the strut count.
+- File names look like `<scan>-chappal-slide-UK8.stl`, `<scan>-shoe-UK8-merged.stl`.
+
+**How it works (`src/core/footwear/`):**
+
+1. The footbed surface is the lower of the smoothed plantar map and the raw lowest scan surface, offset down by the clearance along its normal (spherical erosion). A plain vertical shift would come too close on the steep edges.
+2. The outline is the foot silhouette (signed distance transform) grown by the clearance and wall, plus the toe allowance at the front.
+3. The top of the foot (highest-surface raster) is spherically dilated by the clearance, then by the strap thickness, to give the straps' inner and outer faces.
+4. The shoe upper clusters the scan vertices into lattice cells, places each node exactly at the clearance from the nearest foot point, and splits struts whose middle drifts from it.
 
 ## Supported file formats
 
@@ -282,7 +329,7 @@ src/
 
 ## Tests
 
-- `npm test`: 80 unit tests covering:
+- `npm test`: 103 unit tests covering:
   - STL round-trips (binary and ASCII, the "solid"-header binary edge case, malformed input), welding, watertight and non-manifold detection
   - transform maths
   - hole detection: counts, perimeters, pinch splitting, rim suggestion
@@ -293,8 +340,9 @@ src/
   - measurements, including arch height to a tilted plane
   - project round-trip and corrupt-file rejection
   - insole designer: shoe-size length, padding clearance, full-length flat base, narrow profile, MT pad/bar, fascia groove, wedges, heel cup, 3/4 shell (uniform thickness, heel post, heel raise, Morton's extension, offloads, heel hole), foot arch adjustment limited to the AS–AE span, no ridge at the metatarsals, MT bar types and coverage (complete on both insole types), legacy project upgrade, open plantar scans, landmark alignment and the base-plane lock (set, follow moved points, release on delete)
+  - footwear designer: spherical dilation/erosion and signed distance fields, the conformal lattice, the design rules (parameters clamped to 1.2–1.8 mm struts and 1–2 mm clearance, and measured on the result at both ends of the ranges), slide / thong / split-toe chappals (watertight solid parts, toe-post warning, sole slot), the shoe upper (fits the dorsum, collar opening over the ankle), side wall and tread options, sole-only output for scans without the top of the foot, and project round-trip
   - file formats: OBJ (quads, negative indices), PLY (ASCII, binary, point-cloud rejection), OFF, 3DM, STEP/IGES (including metre and inch files), unit guessing, Y-up conversion and re-interpretation
-- `npm run e2e`: browser smoke test of the main workflow, the insole designer (full length flat base → clearance → features → MT bar type → foot arch between AS/AE → undo → 3/4 shell → download), the base plane (auto-set on a tilted scan, rotation refused, re-align, release, undo), plus an import test of every format fixture (3MF, AMF, glTF/GLB, DAE, VRML, 3DM, STEP, IGES, …).
+- `npm run e2e`: browser smoke test of the main workflow, the insole designer (full length flat base → clearance → features → MT bar type → foot arch between AS/AE → undo → 3/4 shell → download), the base plane (auto-set on a tilted scan, rotation refused, re-align, release, undo), the footwear designer (chappal → rule checks → sliders held to the rule ranges → thong / split-toe → shoe → undo → download, including the merged watertight STL), plus an import test of every format fixture (3MF, AMF, glTF/GLB, DAE, VRML, 3DM, STEP, IGES, …).
 
 ## Known limitations
 
@@ -324,4 +372,10 @@ src/
   - The foot arch adjustment is a smooth bump on the medial arch of the scan between the AS and AE landmarks. It fades out laterally over about 40 % of the forefoot width.
   - Heads 2–4 are not landmarked: the anatomical MT bar estimates the metatarsal parabola from M1 and M5.
   - The insole walls are vertical; there is no flare or bevel yet.
+- **Footwear designer:**
+  - The shapes come from rules, not a last. The outline is the scan silhouette plus allowances, and strap and collar positions are fractions of the foot length. There is no heel height or drop yet; the sole is a flat base with toe spring.
+  - The lattice is a regular tetrahedral midsole plus a clustered triangle net on the upper. There are no Voronoi or graded patterns yet, and struts have a uniform diameter.
+  - The toe post of the thong styles assumes the 1st and 2nd toes are separated in the scan.
+  - Names or logos embossed on the side wall (as in the photos) aren't supported yet.
+  - The merged export can take about a minute for fine lattices (small cell size) on dense scans.
 - **Undo memory:** history is capped at 600 MB of mesh data. On very large meshes only the last few mesh edits can be undone.

@@ -1,130 +1,19 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { SIDE_LABEL } from '../../core/landmarks/definitions';
 import {
   HEEL_BASE_LABEL, INSOLE_TYPE_LABEL, METATARSALS, MORTONS_LABEL, MT_BAR_COVERAGE_LABEL, MT_BAR_PATH_LABEL, RANGES, UK_SIZES, WEDGE_SIDE_LABEL, WEDGE_TYPE_LABEL, insoleLengthMm,
-  type HeelBaseWidth, type InsoleParams, type InsoleType, type MortonsExtension, type MtBarCoverage, type MtBarPath, type Range, type WedgeSide, type WedgeType,
+  type HeelBaseWidth, type InsoleParams, type InsoleType, type MortonsExtension, type MtBarCoverage, type MtBarPath, type WedgeSide, type WedgeType,
 } from '../../core/insole/params';
 import {
-  exportInsoleStl, insoleGesture, insoleLandmarks, setFootArch, setInsoleEnabled, setInsoleType, updateInsole,
+  exportInsoleStl, insoleLandmarks, setFootArch, setInsoleEnabled, setInsoleType, updateInsole,
 } from '../../state/insoleActions';
 import { setView, useStore } from '../../state/store';
 import { Panel, downloadBlob } from '../common';
 import { BasePlaneStatus } from './TransformPanel';
 import { ScanDisplayToggle } from '../ScanDisplayToggle';
-
-// --- small controls -----------------------------------------------------------------------
-
-function Switch({ checked, onChange, disabled, testId }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; testId?: string }) {
-  return (
-    <label className="switch">
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} data-testid={testId} />
-      <span />
-    </label>
-  );
-}
-
-function Field({ label, children, right }: { label: string; children?: ReactNode; right?: ReactNode }) {
-  return (
-    <div className="field">
-      <div className="field-label">
-        <span>{label}</span>
-        {right}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-/**
- * Slider + number box like the reference UI. Dragging updates the design live and records a
- * single undo step on release; typing a value commits immediately.
- */
-function SliderField({
-  label, range, value, set, testId,
-}: {
-  label: string;
-  range: Range;
-  value: number;
-  set: (p: InsoleParams, v: number) => InsoleParams;
-  testId?: string;
-}) {
-  const dragging = useRef(false);
-  const [text, setText] = useState(String(value));
-  useEffect(() => setText(String(Math.round(value * 100) / 100)), [value]);
-  const clamp = (v: number) => Math.min(range.max, Math.max(range.min, v));
-  const endDrag = () => {
-    if (dragging.current) {
-      dragging.current = false;
-      insoleGesture.end(label);
-    }
-  };
-  return (
-    <Field label={`${label}${range.unit ? ` (${range.unit})` : ''}`}>
-      <div className="slider-row">
-        <input
-          type="range"
-          min={range.min}
-          max={range.max}
-          step={range.step}
-          value={value}
-          data-testid={testId}
-          onPointerDown={() => {
-            dragging.current = true;
-            insoleGesture.begin();
-          }}
-          onPointerUp={endDrag}
-          onBlur={endDrag}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value);
-            if (dragging.current) insoleGesture.update((p) => set(p, v));
-            else updateInsole(label, (p) => set(p, v)); // keyboard arrows
-          }}
-        />
-        <input
-          type="number"
-          min={range.min}
-          max={range.max}
-          step={range.step}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onBlur={() => {
-            const v = parseFloat(text);
-            if (Number.isFinite(v) && clamp(v) !== value) updateInsole(label, (p) => set(p, clamp(v)));
-            else setText(String(value));
-          }}
-          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-        />
-      </div>
-      <div className="slider-scale">
-        <span>{range.min}</span>
-        <span>{range.max}</span>
-      </div>
-    </Field>
-  );
-}
-
-function SelectField<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: Record<T, string>; onChange: (v: T) => void }) {
-  return (
-    <Field label={label}>
-      <select value={value} onChange={(e) => onChange(e.target.value as T)}>
-        {(Object.keys(options) as T[]).map((k) => (
-          <option key={k} value={k}>
-            {options[k]}
-          </option>
-        ))}
-      </select>
-    </Field>
-  );
-}
-
-function ToggleField({ label, checked, onChange, children, testId }: { label: string; checked: boolean; onChange: (v: boolean) => void; children?: ReactNode; testId?: string }) {
-  return (
-    <>
-      <Field label={label} right={<Switch checked={checked} onChange={onChange} testId={testId} />} />
-      {checked && children && <div className="sub">{children}</div>}
-    </>
-  );
-}
+import { Field, SelectField, SliderField, Switch, ToggleField } from './designControls';
+import { FootwearPanel } from './FootwearPanel';
+import { setDesignCategory } from '../../state/footwearActions';
 
 // --- panel ------------------------------------------------------------------------------
 
@@ -170,6 +59,7 @@ export function InsolePanel() {
   const result = useStore((s) => s.insole?.output);
   const showToeArrow = useStore((s) => s.view.showToeArrow);
   const pendingType = useStore((s) => s.pendingInsoleType);
+  const category = useStore((s) => s.designCategory);
   if (!doc) return null;
   const p = doc.insole;
   const { missing } = insoleLandmarks(doc);
@@ -225,19 +115,29 @@ export function InsolePanel() {
         />
       </Panel>
 
-      <Panel title="2 · Insole type">
-        <div className="type-choice" role="radiogroup">
+      <Panel title="2 · What to design">
+        <div className="type-choice three" role="radiogroup">
           {(Object.keys(INSOLE_TYPE_LABEL) as InsoleType[]).map((t) => (
-            <label key={t} className={`type-card ${type === t ? 'active' : ''}`}>
-              <input type="radio" name="insoleType" checked={type === t} onChange={() => setInsoleType(t)} data-testid={`type-${t}`} />
+            <label key={t} className={`type-card ${category === 'insole' && type === t ? 'active' : ''}`}>
+              <input
+                type="radio" name="designType" checked={category === 'insole' && type === t} data-testid={`type-${t}`}
+                onChange={() => { setDesignCategory('insole'); setInsoleType(t); }}
+              />
               <span>
                 <b>{t === 'full' ? 'Full length' : '3/4 length'}</b>
-                <small>{t === 'full' ? 'FDM print · flat base' : 'Powder print · 2–4 mm shell'}</small>
+                <small>{t === 'full' ? 'Insole · FDM · flat base' : 'Insole · powder · shell'}</small>
               </span>
             </label>
           ))}
+          <label className={`type-card ${category === 'footwear' ? 'active' : ''}`}>
+            <input type="radio" name="designType" checked={category === 'footwear'} onChange={() => setDesignCategory('footwear')} data-testid="type-footwear" />
+            <span>
+              <b>Footwear</b>
+              <small>Shoe or chappal · lattice</small>
+            </span>
+          </label>
         </div>
-        {p && (
+        {category === 'insole' && p && (
           <Field label="Shoe Size">
             <select
               value={p.shoeSizeUK}
@@ -251,13 +151,17 @@ export function InsolePanel() {
             {result?.footLength && <div className="hint">Scan foot length ≈ {result.footLength.toFixed(0)} mm</div>}
           </Field>
         )}
-        <Field
-          label="Create the insole"
-          right={<Switch checked={!!p} disabled={!ready} onChange={(v) => void setInsoleEnabled(v, type)} testId="create-insole" />}
-        />
+        {category === 'insole' && (
+          <Field
+            label="Create the insole"
+            right={<Switch checked={!!p} disabled={!ready} onChange={(v) => void setInsoleEnabled(v, type)} testId="create-insole" />}
+          />
+        )}
       </Panel>
 
-      {p && tq && (
+      {category === 'footwear' && <FootwearPanel ready={ready} />}
+
+      {category === 'insole' && p && tq && (
         <Panel title="3 · Design">
           <div className={`status-line ${error ? 'err' : ''}`} data-testid="insole-status">
             {busy ? <><span className="spinner" /> updating…</> : error ? error : result ? `${result.kind === 'full' ? 'Full length' : '3/4'} · ${result.length.toFixed(0)} × ${result.width.toFixed(0)} mm · ${result.minThickness.toFixed(1)}–${result.maxThickness.toFixed(1)} mm thick` : ''}
@@ -289,7 +193,7 @@ export function InsolePanel() {
         </Panel>
       )}
 
-      {p && tq && (
+      {category === 'insole' && p && tq && (
         <Panel title={p.type === 'full' ? '4 · Finish – flat base (FDM)' : '4 · Finish – thickness (powder)'}>
           {p.type === 'full' ? (
             <>

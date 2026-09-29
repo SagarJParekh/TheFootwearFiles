@@ -89,7 +89,7 @@ export default function App() {
                 onClick={() => useStore.setState({ rightTab: 'insole' })}
                 data-testid="tab-insole"
               >
-                Insole designer
+                Insole & footwear
               </button>
             </div>
             {rightTab === 'landmarks' ? (

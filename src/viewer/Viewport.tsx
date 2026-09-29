@@ -14,7 +14,7 @@ import { placeLandmark } from '../state/landmarkActions';
 import { ClipPlane } from './ClipPlane';
 import { HoleOverlay } from './HoleOverlay';
 import { BasePlaneOverlay } from './BasePlaneOverlay';
-import { InsoleView, ToeArrow } from './InsoleView';
+import { FootwearView, InsoleView, ToeArrow } from './InsoleView';
 
 /** Click on the surface → place the active landmark (ignored if the click was an orbit drag). */
 function onSurfaceClick(e: ThreeEvent<MouseEvent>) {
@@ -72,6 +72,7 @@ function Scene() {
 
       <ToeArrow />
       <InsoleView />
+      <FootwearView />
       {geometry && (
         <ModelGroup visible={view.scanDisplay !== 'hidden'}>
           <ModelMesh

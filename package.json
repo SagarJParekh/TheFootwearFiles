@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "fixtures": "tsx scripts/generate-fixtures.ts",
-    "e2e": "node e2e/smoke.mjs && node e2e/formats.mjs && node e2e/insole.mjs && node e2e/basePlane.mjs"
+    "e2e": "node e2e/smoke.mjs && node e2e/formats.mjs && node e2e/insole.mjs && node e2e/basePlane.mjs && node e2e/footwear.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

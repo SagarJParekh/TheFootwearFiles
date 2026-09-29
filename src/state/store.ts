@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import type { ProjectDocument } from '../core/document';
 import type { MeshStats, Vec3 } from '../core/types';
 import type { LandmarkId } from '../core/landmarks/definitions';
-import type { HoleInfo, InsoleOutput } from '../workers/mesh.worker';
+import type { FootwearOutput, HoleInfo, InsoleOutput } from '../workers/mesh.worker';
+import type { FootwearKind } from '../core/footwear/params';
 import type { InsoleType } from '../core/insole/params';
 import { emptyHistory, pushHistory, redo, undo, type HistoryState } from './history';
 
@@ -73,6 +74,14 @@ export interface AppState {
   insoleError: string | null;
   /** Insole type chosen before "Create the insole". */
   pendingInsoleType: InsoleType;
+  /** Designer category shown in the panel and viewport: an insole, or footwear. */
+  designCategory: 'insole' | 'footwear';
+  /** Footwear kind chosen before "Create the footwear". */
+  pendingFootwearKind: FootwearKind;
+  /** Generated footwear for the current design (derived, not saved). */
+  footwear: { key: string; output: FootwearOutput } | null;
+  footwearBusy: boolean;
+  footwearError: string | null;
   /** Right sidebar tab. */
   rightTab: 'landmarks' | 'insole';
   /** Snapshot taken at the start of a continuous gesture (gizmo drag, landmark drag). */
@@ -113,6 +122,11 @@ export const useStore = create<AppState>(() => ({
   insoleError: null,
   rightTab: 'landmarks',
   pendingInsoleType: 'full',
+  designCategory: 'insole',
+  pendingFootwearKind: 'chappal',
+  footwear: null,
+  footwearBusy: false,
+  footwearError: null,
   gestureStart: null,
 }));
 
