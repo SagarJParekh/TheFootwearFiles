@@ -1,5 +1,6 @@
-import { useRef } from 'react';
-import { loadStlFile } from '../state/actions';
+import { useRef, useState } from 'react';
+import { exportStl, loadStlFile, saveProject } from '../state/actions';
+import { downloadBlob } from './common';
 import { redoEdit, requestCamera, undoEdit, useStore, type ViewPreset } from '../state/store';
 import { openAnyFile } from '../state/fileOpen';
 
@@ -35,11 +36,12 @@ export function Toolbar({ right }: { right?: React.ReactNode }) {
   const canRedo = useStore((s) => s.history.future.length > 0);
   const undoLabel = useStore((s) => s.history.past.at(-1)?.label);
   const redoLabel = useStore((s) => s.history.future[0]?.label);
+  const [bake, setBake] = useState(true);
 
   return (
     <div className="toolbar">
       <span className="brand">Footwear Files</span>
-      <button onClick={() => inputRef.current?.click()} title="Open STL or project (Ctrl+O)">
+      <button onClick={() => inputRef.current?.click()} title="Open STL, project (.tffproj) or landmarks (.json)">
         Open…
       </button>
       <input
@@ -85,6 +87,31 @@ export function Toolbar({ right }: { right?: React.ReactNode }) {
         </button>
       ))}
       <span className="spacer" />
+      <button
+        disabled={!hasDoc}
+        onClick={async () => {
+          const r = await saveProject();
+          if (r) downloadBlob(r.data as BlobPart, r.fileName);
+        }}
+        title="Save mesh + transform + landmarks as a .tffproj project"
+      >
+        Save project
+      </button>
+      <button
+        disabled={!hasDoc}
+        onClick={async () => {
+          const r = await exportStl(bake);
+          if (r) downloadBlob(r.data, r.fileName, 'model/stl');
+        }}
+        title="Export the edited mesh as binary STL"
+        data-testid="export-stl"
+      >
+        Export STL
+      </button>
+      <label className="toggle" title="Write vertices in world coordinates (with the current move/rotate applied)">
+        <input type="checkbox" checked={bake} onChange={(e) => setBake(e.target.checked)} />
+        apply transform
+      </label>
       {right}
     </div>
   );

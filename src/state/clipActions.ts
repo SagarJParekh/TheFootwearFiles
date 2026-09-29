@@ -1,7 +1,7 @@
 import { planeWorldToLocal } from '../core/math/plane';
 import { applyTransform } from '../core/math/transform';
 import type { Vec3 } from '../core/types';
-import { meshWorker } from '../workers/meshClient';
+import { meshWorker, withMesh } from '../workers/meshClient';
 import { withBusy } from './actions';
 import { commit, setClip, useStore } from './store';
 
@@ -56,7 +56,7 @@ export async function cutWithClipPlane(keep: 'visible' | 'hidden', cap: boolean)
   if (!doc || !derived) return;
   const localPlane = planeWorldToLocal({ normal: clip.normal, constant: clip.constant }, doc.transform);
   await withBusy('Cutting', async () => {
-    const r = await meshWorker().cut(doc.mesh, localPlane, keep === 'visible', cap, derived.stats.watertight);
+    const r = await withMesh(doc.mesh, (m) => meshWorker().cut(m, localPlane, keep === 'visible', cap, derived.stats.watertight));
     if (r.mesh.indices.length === 0) throw new Error('Nothing would remain on the kept side');
     commit(`Cut (${keep === 'visible' ? 'keep visible' : 'keep hidden'}${cap ? ', capped' : ''})`, (d) => ({ ...d, mesh: r.mesh }));
     const parts = [`Cut done (${r.method === 'manifold' ? 'manifold-3d' : 'plane split'})`];

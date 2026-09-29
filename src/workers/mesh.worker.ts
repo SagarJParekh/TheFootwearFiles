@@ -2,22 +2,31 @@
 /**
  * Heavy mesh operations run here so the UI never blocks. Exposed via Comlink;
  * the main thread talks to it through `meshClient.ts`.
- * Returned typed arrays are transferred (zero-copy) back to the main thread.
+ *
+ * Meshes are passed as `MeshRef`: either the full MeshData, or just `{ id }` when the
+ * worker already holds that mesh version in its small cache (avoids structured-cloning
+ * tens of MB on the main thread for every call). Unknown ids throw MESH_NOT_CACHED and
+ * the client retries with the full mesh. Results are transferred (zero-copy); the worker
+ * keeps its own copy of result meshes so follow-up calls can use the id.
  */
 import * as Comlink from 'comlink';
+import Module, { type ManifoldToplevel } from 'manifold-3d';
+import manifoldWasmUrl from 'manifold-3d/manifold.wasm?url';
+import type { ProjectDocument } from '../core/document';
+import { deserializeProject, serializeProject } from '../core/io/project';
 import { parseStl } from '../core/io/stlParse';
 import { writeBinaryStl } from '../core/io/stlWrite';
-import { weldSoup } from '../core/mesh/weld';
-import { analyzeMesh } from '../core/mesh/analyze';
-import { computeVertexNormals } from '../core/mesh/normals';
 import { transformPositions } from '../core/math/transform';
+import { analyzeMesh } from '../core/mesh/analyze';
 import { distancesToSurface } from '../core/mesh/closestPoint';
-import type { MeshData, MeshStats, Plane, RigidTransform, Vec3 } from '../core/types';
 import { cutMeshByPlane, type CutResult } from '../core/mesh/cut';
-import { manifoldTrim } from '../core/mesh/manifoldCut';
-import Module, { type ManifoldToplevel } from 'manifold-3d';
-import { findBoundaryLoops, suggestExcludedLoops } from '../core/mesh/holes';
 import { fillHoles, type FillOptions } from '../core/mesh/fill/fillHoles';
+import { findBoundaryLoops, suggestExcludedLoops } from '../core/mesh/holes';
+import { manifoldTrim } from '../core/mesh/manifoldCut';
+import { computeVertexNormals } from '../core/mesh/normals';
+import { weldSoup } from '../core/mesh/weld';
+import type { MeshData, MeshStats, Plane, RigidTransform, Vec3 } from '../core/types';
+import { MESH_NOT_CACHED, type MeshRef } from './meshRef';
 
 /** Hole description sent to the UI (loop polyline instead of vertex indices). */
 export interface HoleInfo {
@@ -30,7 +39,12 @@ export interface HoleInfo {
   points: Float32Array;
   suggestedExclude: boolean;
 }
-import manifoldWasmUrl from 'manifold-3d/manifold.wasm?url';
+
+/**
+ * manifold-3d (single-threaded WASM) scales poorly past ~1.5M triangles (≈3 s at 1.3M,
+ * ≈23 s at 5M) while the own split is ~6× faster, so manifold is used below this size.
+ */
+const MANIFOLD_MAX_TRIANGLES = 1_500_000;
 
 let manifoldPromise: Promise<ManifoldToplevel> | null = null;
 function manifold(): Promise<ManifoldToplevel> {
@@ -41,7 +55,30 @@ function manifold(): Promise<ManifoldToplevel> {
   return manifoldPromise;
 }
 
+// --- mesh cache ---------------------------------------------------------------
+const CACHE_SIZE = 3;
+const cache = new Map<string, MeshData>();
+
+function remember(mesh: MeshData): void {
+  cache.delete(mesh.id);
+  cache.set(mesh.id, mesh);
+  while (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
+}
+
+function resolve(ref: MeshRef): MeshData {
+  if ('positions' in ref) {
+    remember(ref);
+    return ref;
+  }
+  const m = cache.get(ref.id);
+  if (!m) throw new Error(MESH_NOT_CACHED);
+  remember(m);
+  return m;
+}
+
+/** Keeps a private copy of each result mesh, then marks the originals' buffers for transfer. */
 function transferMesh<T extends object>(result: T, ...meshes: MeshData[]): T {
+  for (const m of meshes) remember({ id: m.id, positions: m.positions.slice(), indices: m.indices.slice() });
   return Comlink.transfer(
     result,
     meshes.flatMap((m) => [m.positions.buffer as ArrayBuffer, m.indices.buffer as ArrayBuffer]),
@@ -55,58 +92,88 @@ const api = {
     const mesh = weldSoup(soup);
     const stats = analyzeMesh(mesh);
     const normals = computeVertexNormals(mesh);
-    const res = transferMesh({ mesh, stats, format, normals }, mesh);
-    return Comlink.transfer(res, [normals.buffer]);
+    return Comlink.transfer(transferMesh({ mesh, stats, format, normals }, mesh), [normals.buffer]);
   },
 
-  async analyze(mesh: MeshData): Promise<MeshStats> {
-    return analyzeMesh(mesh);
+  async analyze(ref: MeshRef): Promise<MeshStats> {
+    return analyzeMesh(resolve(ref));
   },
 
-  async normals(mesh: MeshData): Promise<Float32Array> {
-    const n = computeVertexNormals(mesh);
+  async normals(ref: MeshRef): Promise<Float32Array> {
+    const n = computeVertexNormals(resolve(ref));
     return Comlink.transfer(n, [n.buffer]);
   },
 
-  async surfaceDistances(mesh: MeshData, points: Vec3[]): Promise<number[]> {
-    return distancesToSurface(mesh, points);
+  async surfaceDistances(ref: MeshRef, points: Vec3[]): Promise<number[]> {
+    return distancesToSurface(resolve(ref), points);
   },
 
   /**
    * Hybrid plane cut: manifold-3d for watertight meshes when capping (robust, always closed),
    * otherwise the own split + planar cap which also handles open scans.
    */
-  async cut(mesh: MeshData, plane: Plane, keepPositive: boolean, cap: boolean, watertight: boolean): Promise<CutResult & { fallbackReason?: string }> {
+  async cut(ref: MeshRef, plane: Plane, keepPositive: boolean, cap: boolean, watertight: boolean): Promise<CutResult & { fallbackReason?: string }> {
+    const mesh = resolve(ref);
     let fallbackReason: string | undefined;
-    if (cap && watertight) {
+    const tryManifold = async () => {
+      const out = manifoldTrim(await manifold(), mesh, plane, keepPositive);
+      return transferMesh({ mesh: out, cappedLoops: -1, openCutLoops: 0, method: 'manifold' as const }, out);
+    };
+    const small = mesh.indices.length / 3 <= MANIFOLD_MAX_TRIANGLES;
+    if (cap && watertight && small) {
       try {
-        const out = manifoldTrim(await manifold(), mesh, plane, keepPositive);
-        return transferMesh({ mesh: out, cappedLoops: -1, openCutLoops: 0, method: 'manifold' as const }, out);
+        return await tryManifold();
       } catch (e) {
         fallbackReason = e instanceof Error ? e.message : String(e);
       }
     }
     const r = cutMeshByPlane(mesh, plane, { keepPositive, cap });
+    // Large watertight meshes use the (much faster) split first; fall back to manifold only
+    // if the split result is not closed.
+    if (cap && watertight && !small && !analyzeMesh(r.mesh).watertight) {
+      try {
+        return await tryManifold();
+      } catch (e) {
+        fallbackReason = e instanceof Error ? e.message : String(e);
+      }
+    }
     return transferMesh({ ...r, fallbackReason }, r.mesh);
   },
 
-  async findHoles(mesh: MeshData): Promise<HoleInfo[]> {
+  async findHoles(ref: MeshRef): Promise<HoleInfo[]> {
+    const mesh = resolve(ref);
     const loops = findBoundaryLoops(mesh);
     const excluded = suggestExcludedLoops(loops);
     const holes = loops.map((l) => {
       const points = new Float32Array(l.vertices.length * 3);
       l.vertices.forEach((v, i) => points.set(mesh.positions.subarray(3 * v, 3 * v + 3), 3 * i));
-      return { id: l.id, edgeCount: l.edgeCount, perimeter: l.perimeter, diameter: l.diameter, centroid: l.centroid, points, suggestedExclude: excluded.has(l.id) };
+      return {
+        id: l.id, edgeCount: l.edgeCount, perimeter: l.perimeter, diameter: l.diameter,
+        centroid: l.centroid, points, suggestedExclude: excluded.has(l.id),
+      };
     });
     return Comlink.transfer(holes, holes.map((h) => h.points.buffer as ArrayBuffer));
   },
 
-  async fillHoles(mesh: MeshData, loopIds: number[], options: FillOptions) {
-    const r = fillHoles(mesh, loopIds, options);
+  async fillHoles(ref: MeshRef, loopIds: number[], options: FillOptions) {
+    const r = fillHoles(resolve(ref), loopIds, options);
     return transferMesh(r, r.mesh);
   },
 
-  async exportStl(mesh: MeshData, transform: RigidTransform | null): Promise<ArrayBuffer> {
+  async saveProject(doc: Omit<ProjectDocument, 'mesh'>, ref: MeshRef): Promise<Uint8Array> {
+    const bytes = serializeProject({ ...doc, mesh: resolve(ref) });
+    return Comlink.transfer(bytes, [bytes.buffer as ArrayBuffer]);
+  },
+
+  async loadProject(buffer: ArrayBuffer): Promise<{ doc: ProjectDocument; stats: MeshStats; normals: Float32Array }> {
+    const doc = deserializeProject(new Uint8Array(buffer));
+    const stats = analyzeMesh(doc.mesh);
+    const normals = computeVertexNormals(doc.mesh);
+    return Comlink.transfer(transferMesh({ doc, stats, normals }, doc.mesh), [normals.buffer]);
+  },
+
+  async exportStl(ref: MeshRef, transform: RigidTransform | null): Promise<ArrayBuffer> {
+    const mesh = resolve(ref);
     const positions = transform ? transformPositions(mesh.positions, transform) : mesh.positions;
     const buf = writeBinaryStl({ positions, indices: mesh.indices });
     return Comlink.transfer(buf, [buf]);

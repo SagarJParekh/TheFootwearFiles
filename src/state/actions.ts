@@ -2,11 +2,12 @@
  * High-level actions invoked by the UI. They orchestrate worker calls and store updates;
  * the heavy lifting is in core/ (run in the worker).
  */
-import { newDocument, type ProjectDocument } from '../core/document';
+import { newDocument } from '../core/document';
 import { computeBounds } from '../core/mesh/analyze';
 import { eulerDegToQuat, quatToEulerDeg, rotateVector, transformPositions } from '../core/math/transform';
 import { IDENTITY_TRANSFORM, type MeshData, type RigidTransform, type Vec3 } from '../core/types';
-import { meshWorker } from '../workers/meshClient';
+import * as Comlink from 'comlink';
+import { meshWorker, withMesh } from '../workers/meshClient';
 import { commit, requestCamera, resetDocument, useStore, type MeshDerived } from './store';
 
 const set = useStore.setState;
@@ -46,7 +47,7 @@ async function refreshDerived(mesh: MeshData) {
   }
   pendingMeshId = mesh.id;
   const w = meshWorker();
-  const [stats, normals] = await Promise.all([w.analyze(mesh), w.normals(mesh)]);
+  const [stats, normals] = await Promise.all([withMesh(mesh, (m) => w.analyze(m)), withMesh(mesh, (m) => w.normals(m))]);
   const d: MeshDerived = { meshId: mesh.id, stats, normals };
   cacheDerived(d);
   if (pendingMeshId === mesh.id && get().doc?.mesh.id === mesh.id) set({ derived: d });
@@ -71,24 +72,60 @@ useStore.subscribe((state, prev) => {
 export async function loadStlFile(file: File): Promise<void> {
   await withBusy(`Loading ${file.name}`, async () => {
     const buffer = await file.arrayBuffer();
-    const { mesh, stats, normals, format } = await meshWorker().loadStl(buffer);
+    // transfer (not copy) the file buffer – it can be hundreds of MB
+    const { mesh, stats, normals, format } = await meshWorker().loadStl(Comlink.transfer(buffer, [buffer]));
     cacheDerived({ meshId: mesh.id, stats, normals });
     set({ derived: derivedCache.get(mesh.id)! });
     resetDocument(newDocument(mesh, file.name));
     set({
       scanDialogOpen: true,
       tool: 'none',
+      activeLandmark: null,
+      offSurface: {},
       notice: `Loaded ${file.name} (${format}, ${stats.triangleCount.toLocaleString()} triangles)`,
     });
     requestCamera('fit');
   });
 }
 
-/** Loads an in-memory mesh (used by project loading and the built-in samples). */
-export function loadMesh(mesh: MeshData, name: string, doc?: ProjectDocument): void {
-  resetDocument(doc ?? newDocument(mesh, name));
-  set({ scanDialogOpen: !doc?.scan, tool: 'none' });
-  requestCamera('fit');
+/** Opens a .tffproj project (mesh + transform + landmarks + scan info). */
+export async function loadProjectFile(file: File): Promise<void> {
+  await withBusy(`Opening ${file.name}`, async () => {
+    const buffer = await file.arrayBuffer();
+    const { doc, stats, normals } = await meshWorker().loadProject(Comlink.transfer(buffer, [buffer]));
+    cacheDerived({ meshId: doc.mesh.id, stats, normals });
+    set({ derived: derivedCache.get(doc.mesh.id)! });
+    resetDocument(doc);
+    set({
+      scanDialogOpen: !doc.scan,
+      tool: 'none',
+      activeLandmark: null,
+      offSurface: {},
+      notice: `Opened project ${file.name} (${Object.keys(doc.landmarks).length} landmarks)`,
+    });
+    requestCamera('fit');
+  });
+}
+
+const baseName = (name: string) => name.replace(/\.[^.]+$/, '') || 'scan';
+
+export async function saveProject(): Promise<{ data: Uint8Array; fileName: string } | undefined> {
+  const { doc } = get();
+  if (!doc) return;
+  return withBusy('Saving project', async () => ({
+    data: await withMesh(doc.mesh, (m) => meshWorker().saveProject({ meta: doc.meta, scan: doc.scan, transform: doc.transform, landmarks: doc.landmarks }, m)),
+    fileName: `${baseName(doc.meta.sourceFileName)}.tffproj`,
+  }));
+}
+
+/** Binary STL of the current mesh; with `applyTransform` the vertices are written in world coordinates. */
+export async function exportStl(applyTransform: boolean): Promise<{ data: ArrayBuffer; fileName: string } | undefined> {
+  const { doc } = get();
+  if (!doc) return;
+  return withBusy('Exporting STL', async () => ({
+    data: await withMesh(doc.mesh, (m) => meshWorker().exportStl(m, applyTransform ? doc.transform : null)),
+    fileName: `${baseName(doc.meta.sourceFileName)}-edited.stl`,
+  }));
 }
 
 // ---------------------------------------------------------------------------

@@ -10,7 +10,8 @@
     "typecheck": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "fixtures": "tsx scripts/generate-fixtures.ts"
+    "fixtures": "tsx scripts/generate-fixtures.ts",
+    "e2e": "node e2e/smoke.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

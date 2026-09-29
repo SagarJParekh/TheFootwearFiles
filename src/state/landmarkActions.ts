@@ -1,7 +1,7 @@
 import { landmarksToCsv, landmarksToJson, parseLandmarksJson } from '../core/io/landmarksIO';
 import { LANDMARK_BY_ID, landmarksForScanType, type LandmarkId } from '../core/landmarks/definitions';
 import type { Vec3 } from '../core/types';
-import { meshWorker } from '../workers/meshClient';
+import { meshWorker, withMesh } from '../workers/meshClient';
 import { commit, setTool, updateLive, useStore } from './store';
 
 const get = useStore.getState;
@@ -84,7 +84,9 @@ export async function refreshOffSurface(): Promise<void> {
     return;
   }
   const meshId = doc.mesh.id;
-  const d = await meshWorker().surfaceDistances(doc.mesh, ids.map((id) => doc.landmarks[id]!.local));
+  const d = await withMesh(doc.mesh, (m) =>
+    meshWorker().surfaceDistances(m, ids.map((id) => doc.landmarks[id]!.local)),
+  );
   if (get().doc?.mesh.id !== meshId) return;
   const off: Partial<Record<LandmarkId, number>> = {};
   ids.forEach((id, i) => {

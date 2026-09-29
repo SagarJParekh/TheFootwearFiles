@@ -83,7 +83,7 @@ export function ClipCutPanel() {
           </div>
           <p className="hint">
             {cap && watertight
-              ? 'Watertight mesh: cut with manifold-3d (always closed).'
+              ? 'Watertight mesh: cut with manifold-3d (≤1.5M triangles) or a verified plane split – result stays closed.'
               : cap
                 ? 'Open mesh: plane split + flat cap of every closed section loop.'
                 : 'Section is left open.'}

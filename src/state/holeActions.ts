@@ -1,5 +1,5 @@
 import { DEFAULT_FILL_OPTIONS, type FillOptions } from '../core/mesh/fill/fillHoles';
-import { meshWorker } from '../workers/meshClient';
+import { meshWorker, withMesh } from '../workers/meshClient';
 import { withBusy } from './actions';
 import { commit, useStore } from './store';
 
@@ -15,7 +15,7 @@ export async function detectHoles(): Promise<void> {
   const meshId = doc.mesh.id;
   detecting = meshId;
   try {
-    const loops = await meshWorker().findHoles(doc.mesh);
+    const loops = await withMesh(doc.mesh, (m) => meshWorker().findHoles(m));
     if (get().doc?.mesh.id !== meshId) return;
     set({
       holes: { meshId, loops },
@@ -54,7 +54,7 @@ export async function fillHoleIds(ids: number[], options: FillOptions = DEFAULT_
   const { doc } = get();
   if (!doc || !ids.length) return;
   await withBusy(`Filling ${ids.length} hole${ids.length > 1 ? 's' : ''}`, async () => {
-    const r = await meshWorker().fillHoles(doc.mesh, ids, options);
+    const r = await withMesh(doc.mesh, (m) => meshWorker().fillHoles(m, ids, options));
     if (get().doc?.mesh.id !== doc.mesh.id) return; // mesh changed meanwhile
     commit(ids.length === 1 ? 'Fill hole' : `Fill ${ids.length} holes`, (d) => ({ ...d, mesh: r.mesh }));
     set({ notice: `Filled ${r.filled} hole(s): +${r.addedTriangles.toLocaleString()} triangles` });
