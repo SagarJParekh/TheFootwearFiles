@@ -20,11 +20,12 @@ const state = () => page.evaluate(() => {
   const o = s.insole?.output;
   return { kind: o?.kind, tris: o ? o.mesh.indices.length / 3 : 0, min: o?.minThickness, max: o?.maxThickness, key: s.insole?.key, busy: s.insoleBusy, err: s.insoleError, size: s.doc?.insole?.shoeSizeUK };
 });
-const settle = async () => {
-  await page.waitForTimeout(250);
-  await page.waitForFunction(() => { const s = window.__app.useStore.getState(); return !s.insoleBusy && !s.busy; }, null, { timeout: 60000 });
-  await page.waitForTimeout(250);
-};
+// Wait until the generated insole corresponds to the current design parameters.
+const settle = () => page.waitForFunction(() => {
+  const s = window.__app.useStore.getState();
+  if (s.busy || s.insoleBusy || !s.doc?.insole) return !s.busy && !s.insoleBusy;
+  return !!s.insole && s.insole.key.endsWith(JSON.stringify(s.doc.insole) + ']');
+}, null, { timeout: 60000 });
 
 try {
   await page.goto('http://localhost:5197/');
@@ -42,6 +43,14 @@ try {
   await settle();
   let s = await state();
   check(s.kind === 'insole' && s.tris > 1000 && Math.abs(s.min - 2.5) < 1e-3, `insole created (UK${s.size}, ${s.tris} tris, ${s.min?.toFixed(2)} mm padding)`);
+
+  const display = () => page.evaluate(() => window.__app.useStore.getState().view.scanDisplay);
+  check((await display()) === 'transparent', 'foot becomes transparent when the insole is created');
+  await page.click('.viewport-overlay [data-testid=scan-hidden]');
+  check((await display()) === 'hidden', 'viewport toggle hides the foot');
+  await page.click('.viewport-overlay [data-testid=scan-solid]');
+  check((await display()) === 'solid', 'viewport toggle shows the foot again');
+  await page.click('.viewport-overlay [data-testid=scan-transparent]');
 
   // padding slider via keyboard
   await page.focus('[data-testid=padding]');

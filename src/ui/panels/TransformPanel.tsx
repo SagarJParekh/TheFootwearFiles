@@ -9,7 +9,7 @@ export function BasePlaneStatus({ locked, hasPoints }: { locked: boolean; hasPoi
   if (locked) {
     return (
       <div className="lock-banner" data-testid="base-plane-locked">
-        <span>🔒 Base plane set (heel centre · M1 · M5 on the floor). Rotation is locked.</span>
+        <span>🔒 Base plane set – heel centre, M1 and M5 are on the floor. The model is locked, so the move and rotate tools are removed.</span>
         <button className="small" onClick={releaseBasePlane} title="Unlock the model so it can be rotated again (undoable)">
           Release base plane
         </button>
@@ -44,7 +44,6 @@ export function TransformPanel() {
 
   const gizmoButton = (mode: GizmoMode, label: string, key: string) => (
     <button
-      disabled={locked}
       className={gizmo === mode ? 'active' : ''}
       onClick={() => setView({ gizmo: gizmo === mode ? 'none' : mode })}
       title={`${label} gizmo (${key})`}
@@ -56,7 +55,8 @@ export function TransformPanel() {
   return (
     <Panel title="Transform">
       <BasePlaneStatus locked={locked} hasPoints={hasPoints} />
-      <fieldset className="plain" disabled={locked}>
+      {!locked && (
+      <fieldset className="plain">
       <div className="button-row">
         {gizmoButton('translate', 'Move', 'G')}
         {gizmoButton('rotate', 'Rotate', 'R')}
@@ -69,7 +69,6 @@ export function TransformPanel() {
             label={a}
             value={transform.position[i]}
             step={1}
-            disabled={locked}
             onCommit={(v) => {
               const p = [...transform.position] as Vec3;
               p[i] = v;
@@ -86,7 +85,6 @@ export function TransformPanel() {
             label={a}
             value={rot[i]}
             step={1}
-            disabled={locked}
             onCommit={(v) => {
               const r = [...rot] as Vec3;
               r[i] = v;
@@ -111,6 +109,7 @@ export function TransformPanel() {
         <button onClick={resetTransform}>Reset</button>
       </div>
       </fieldset>
+      )}
     </Panel>
   );
 }

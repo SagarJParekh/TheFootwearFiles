@@ -40,9 +40,11 @@ interface Props {
   onPointerMove?: (e: ThreeEvent<PointerEvent>) => void;
   onClick?: (e: ThreeEvent<MouseEvent>) => void;
   meshRef?: (m: THREE.Mesh | null) => void;
+  /** 1 = solid; < 1 renders the scan see-through (e.g. to inspect the insole under it). */
+  opacity?: number;
 }
 
-export function ModelMesh({ geometry, flatShading, wireframe, clippingPlanes, onPointerDown, onPointerMove, onClick, meshRef }: Props) {
+export function ModelMesh({ geometry, flatShading, wireframe, clippingPlanes, onPointerDown, onPointerMove, onClick, meshRef, opacity = 1 }: Props) {
   const material = useMemo(createSurfaceMaterial, []);
   const wireMaterial = useMemo(
     () => new THREE.MeshBasicMaterial({ color: '#3a3a3a', wireframe: true, transparent: true, opacity: 0.35 }),
@@ -51,11 +53,14 @@ export function ModelMesh({ geometry, flatShading, wireframe, clippingPlanes, on
 
   useEffect(() => {
     material.flatShading = flatShading;
+    material.transparent = opacity < 1;
+    material.opacity = opacity;
+    material.depthWrite = opacity >= 1;
     material.clippingPlanes = clippingPlanes;
     wireMaterial.clippingPlanes = clippingPlanes;
     material.needsUpdate = true;
     wireMaterial.needsUpdate = true;
-  }, [material, wireMaterial, flatShading, clippingPlanes]);
+  }, [material, wireMaterial, flatShading, clippingPlanes, opacity]);
 
   useEffect(() => () => {
     material.dispose();

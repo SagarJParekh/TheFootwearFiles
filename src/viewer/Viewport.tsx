@@ -18,8 +18,8 @@ import { InsoleView, ToeArrow } from './InsoleView';
 
 /** Click on the surface → place the active landmark (ignored if the click was an orbit drag). */
 function onSurfaceClick(e: ThreeEvent<MouseEvent>) {
-  const { tool, activeLandmark } = useStore.getState();
-  if (tool !== 'landmark' || !activeLandmark || e.delta > 4) return;
+  const { tool, activeLandmark, view } = useStore.getState();
+  if (tool !== 'landmark' || !activeLandmark || e.delta > 4 || view.scanDisplay === 'hidden') return;
   const hit = firstVisibleHit(e.intersections);
   if (!hit) return;
   e.stopPropagation();
@@ -73,7 +73,7 @@ function Scene() {
       <ToeArrow />
       <InsoleView />
       {geometry && (
-        <ModelGroup visible={view.showScan}>
+        <ModelGroup visible={view.scanDisplay !== 'hidden'}>
           <ModelMesh
             geometry={geometry}
             flatShading={view.flatShading}
@@ -81,6 +81,7 @@ function Scene() {
             clippingPlanes={clippingPlanes}
             meshRef={setMeshRef}
             onClick={onSurfaceClick}
+            opacity={view.scanDisplay === 'transparent' ? 0.3 : 1}
           />
           <LandmarkMarkers radius={markerRadius} />
           <BasePlaneOverlay />

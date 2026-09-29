@@ -44,8 +44,10 @@ try {
 
   // Rotation attempts are refused
   const before = JSON.stringify(s.q);
-  check(await page.isDisabled('.button-row button:text-is("Rotate")'), 'Rotate button disabled');
-  check(await page.isDisabled('.button-row button:text-is("Z+")'), 'quick-rotate disabled');
+  const count = (sel) => page.locator(sel).count();
+  check((await count('.button-row button:text-is("Rotate")')) === 0, 'Rotate tool removed');
+  check((await count('.button-row button:text-is("Move")')) === 0, 'Move tool removed');
+  check((await count('.button-row button:text-is("Z+")')) === 0 && (await count('text=Rotation (° XYZ')) === 0, 'rotation fields and quick-rotate removed');
   await page.click('canvas', { position: { x: 20, y: 20 } });
   await page.keyboard.press('r');
   check((await info()).gizmo === 'none', 'R key does not open the rotate gizmo');
@@ -60,7 +62,7 @@ try {
   // Release and undo
   await page.click('text=Release base plane >> nth=0');
   s = await info();
-  check(!s.locked && !(await page.isDisabled('.button-row button:text-is("Rotate")')), 'release unlocks rotation');
+  check(!s.locked && (await page.locator('.button-row button:text-is("Rotate")').count()) === 1, 'release brings the rotate tool back');
   await page.keyboard.press('Control+z');
   check((await info()).locked, 'undo restores the lock');
   check(errors.length === 0, `no page errors ${errors.join('; ')}`);

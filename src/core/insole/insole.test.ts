@@ -62,6 +62,27 @@ describe('insole generator', () => {
     expect(b.max[1] - b.min[1]).toBeGreaterThan(r.length * 0.95);
   });
 
+  it('full-length insole is completely flat from the M1–M5 line forward', () => {
+    const f = surface.frame;
+    const mesh = gen().mesh;
+    // distance distal of the M1→M5 line, in frame coords
+    const dA = f.met5[0] - f.met1[0], dB = f.met5[1] - f.met1[1];
+    const len = Math.hypot(dA, dB);
+    let nA = -dB / len, nB = dA / len;
+    if (nB < 0) [nA, nB] = [-nA, -nB];
+    const [ox, oy] = surface.frame.origin, [ux, uy] = surface.frame.u, [vx, vy] = surface.frame.v;
+    const tops: number[] = [];
+    const p = mesh.positions;
+    for (let i = 0; i < p.length / 2; i += 3) {
+      // top-surface vertices are stored first (first half of the vertex array)
+      const x = p[i] - ox, y = p[i + 1] - oy;
+      const a = x * ux + y * uy, b = x * vx + y * vy;
+      if ((a - f.met1[0]) * nA + (b - f.met1[1]) * nB > 0.5) tops.push(p[i + 2]);
+    }
+    expect(tops.length).toBeGreaterThan(500);
+    expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(1e-3);
+  });
+
   it('narrow profile and padding thickness', () => {
     expect(gen((p) => (p.narrowProfile = true)).width).toBeLessThan(gen().width * 0.93);
     const thick = gen((p) => (p.paddingThickness = 4));

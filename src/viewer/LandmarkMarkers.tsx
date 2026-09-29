@@ -18,7 +18,8 @@ export function LandmarkMarkers({ radius }: { radius: number }) {
   const landmarks = useStore((s) => s.doc?.landmarks);
   const scan = useStore((s) => s.doc?.scan);
   const active = useStore((s) => s.activeLandmark);
-  const showLabels = useStore((s) => s.view.showLabels);
+  // HTML labels ignore parent visibility, so hide them explicitly with the scan.
+  const showLabels = useStore((s) => s.view.showLabels && s.view.scanDisplay !== 'hidden');
   const offSurface = useStore((s) => s.offSurface);
   const { camera, gl, controls } = useThree();
   const [dragging, setDragging] = useState<LandmarkId | null>(null);

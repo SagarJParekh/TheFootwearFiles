@@ -10,6 +10,7 @@ import { MeasurementsPanel } from './ui/panels/MeasurementsPanel';
 import { ClipCutPanel } from './ui/panels/ClipCutPanel';
 import { HolesPanel } from './ui/panels/HolesPanel';
 import { InsolePanel } from './ui/panels/InsolePanel';
+import { ViewportScanToggle } from './ui/ScanDisplayToggle';
 import { StatusBar } from './ui/StatusBar';
 import { useKeyboardShortcuts } from './ui/useKeyboardShortcuts';
 import { openAnyFile } from './state/fileOpen';
@@ -74,6 +75,7 @@ export default function App() {
         </aside>
         <div className={`viewport tool-${tool}`}>
           <Viewport />
+          <ViewportScanToggle />
           {dragOver && <div className="drop-overlay">Drop a 3D model, project or landmarks JSON</div>}
         </div>
         {hasDoc && (

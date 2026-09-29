@@ -90,7 +90,7 @@ To try the app without a real scan, use the **Samples** menu:
 As soon as the **heel centre**, **1st metatarsal head** and **5th metatarsal head** are all placed, the plane through those three points becomes the **base plane**:
 
 - **Alignment:** the model is moved so the base plane is the floor (Z = 0), with the heel centre at the origin and heel → toes along +Y. The foot always ends up above the plane; the arch peak, or else the scan's centroid, decides which side is "up".
-- **Lock:** the model's position and rotation are then **locked**. The Move/Rotate gizmo, the numeric position and rotation fields, quick-rotate, Centre on floor, Reset, the G/R shortcuts, and changing units or up axis in Scan setup are all disabled. Any other attempt to rotate is refused with a message.
+- **Lock:** the model's position and rotation are then **locked**. The Move/Rotate tools, the numeric position and rotation fields, quick-rotate, Centre on floor and Reset are **removed** from the Transform panel. The G/R shortcuts and changing units or up axis in Scan setup are disabled, and any other attempt to rotate is refused with a message. The camera can still orbit around the model.
 - **Moving a point:** dragging or re-placing one of the three landmarks recalculates the plane from the new positions. The lock stays on.
 - **Deleting a point:** deleting one of the three releases the lock, because the plane is no longer defined.
 - **Display:** the plane is drawn as a green triangle through the three points (grey and dashed when not set). The Transform panel and the Insole designer show the lock status.
@@ -117,7 +117,7 @@ This replicates the reference orthotic-design workflow step by step. Every contr
 | Control | Range | Effect |
 | --- | --- | --- |
 | Narrow insole profile | on/off | Outline 10 % narrower |
-| Padding thickness | 1.5–4 mm | Shell thickness; the insole follows the plantar surface |
+| Padding thickness | 1.5–4 mm | Shell thickness; the insole follows the plantar surface up to the metatarsal heads. **From the M1–M5 line forward it is completely flat**: no toe contours are traced, with a 12 mm blend just behind the line |
 | Medial Arch pressure | −25…25 mm | Pushes the insole up into (+) or away from (−) the medial arch |
 | Add Wedge | type Heel / Forefoot / Full; side Medial / Lateral; angle 0–7° | Posting: added material tilted about the opposite border |
 | Add MT Pad | height 0–7 mm | Dome just proximal to the 2nd–4th metatarsal heads |
@@ -140,7 +140,7 @@ The orthosis ends 6 mm before the metatarsal line. The underside is filled flat 
 | Hole in heel | on/off | 20 mm through-hole at the heel centre |
 
 **Also:**
-- **Toggle scan visibility** hides or shows the scan.
+- **Foot: Visible / Transparent / Hidden** controls how the scan is drawn. It is in the designer panel and also floats at the top left of the viewport once an insole exists. The foot switches to Transparent automatically when the insole is created.
 - **Finalise and download** exports a watertight STL in world coordinates.
 - The design is saved with the project.
 
@@ -260,7 +260,7 @@ src/
 
 ## Tests
 
-- `npm test`: 79 unit tests covering:
+- `npm test`: 80 unit tests covering:
   - STL round-trips (binary and ASCII, the "solid"-header binary edge case, malformed input), welding, watertight and non-manifold detection
   - transform maths
   - hole detection: counts, perimeters, pinch splitting, rim suggestion

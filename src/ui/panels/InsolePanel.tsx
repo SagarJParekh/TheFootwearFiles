@@ -5,11 +5,12 @@ import {
   type HeelBaseWidth, type InsoleParams, type MortonsExtension, type Range, type WedgeSide, type WedgeType,
 } from '../../core/insole/params';
 import {
-  exportInsoleStl, insoleGesture, insoleLandmarks, setInsoleEnabled, toggleScanVisibility, updateInsole,
+  exportInsoleStl, insoleGesture, insoleLandmarks, setInsoleEnabled, updateInsole,
 } from '../../state/insoleActions';
 import { setView, useStore } from '../../state/store';
 import { Panel, downloadBlob } from '../common';
 import { BasePlaneStatus } from './TransformPanel';
+import { ScanDisplayToggle } from '../ScanDisplayToggle';
 
 // --- small controls -----------------------------------------------------------------------
 
@@ -132,7 +133,6 @@ export function InsolePanel() {
   const busy = useStore((s) => s.insoleBusy);
   const error = useStore((s) => s.insoleError);
   const result = useStore((s) => s.insole?.output);
-  const showScan = useStore((s) => s.view.showScan);
   const showToeArrow = useStore((s) => s.view.showToeArrow);
   if (!doc) return null;
   const p = doc.insole;
@@ -246,7 +246,9 @@ export function InsolePanel() {
             <SliderField label="Footplate Thickness" range={RANGES.footplateThickness} value={o.footplateThickness} set={(q, v) => ({ ...q, orthosis: { ...q.orthosis, footplateThickness: v } })} />
             <ToggleField label="Hole in heel" checked={o.holeInHeel} onChange={toggle('Hole in heel', (q, v) => ({ ...q, orthosis: { ...q.orthosis, holeInHeel: v } }))} />
           </ToggleField>
-          <Field label="Toggle scan visibility" right={<Switch checked={showScan} onChange={() => toggleScanVisibility()} />} />
+          <Field label="Foot scan">
+            <ScanDisplayToggle />
+          </Field>
           <Field label={`Finalise and download ${o.enabled ? 'orthosis' : 'insole'}`}>
             <button
               className="download"

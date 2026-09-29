@@ -8,7 +8,7 @@ import { defaultInsoleParams, suggestShoeSize, type InsoleParams } from '../core
 import { applyTransform } from '../core/math/transform';
 import type { Vec3 } from '../core/types';
 import { meshWorker, withMesh } from '../workers/meshClient';
-import { setView, useStore, commit, beginGesture, updateLive, endGesture } from './store';
+import { setView, useStore, commit, beginGesture, updateLive, endGesture, type ScanDisplay } from './store';
 import { setBasePlaneAction } from './basePlaneActions';
 import { withBusy } from './actions';
 
@@ -47,6 +47,8 @@ export async function setInsoleEnabled(enabled: boolean): Promise<void> {
     if (len) size = suggestShoeSize(len);
   });
   commit('Create insole', (d) => ({ ...d, insole: d.insole ?? defaultInsoleParams(size) }));
+  // Make the foot see-through so the new insole underneath is visible (toggle in the panel).
+  if (get().view.scanDisplay === 'solid') setView({ scanDisplay: 'transparent' });
   set({ notice: `Insole created (UK${size} suggested from the scan)` });
 }
 
@@ -67,8 +69,8 @@ export function alignScanFromLandmarks(): void {
   setBasePlaneAction();
 }
 
-export function toggleScanVisibility(): void {
-  setView({ showScan: !get().view.showScan });
+export function setScanDisplay(mode: ScanDisplay): void {
+  setView({ scanDisplay: mode });
 }
 
 // ---------------------------------------------------------------------------

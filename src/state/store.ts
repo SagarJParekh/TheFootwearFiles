@@ -7,6 +7,7 @@ import { emptyHistory, pushHistory, redo, undo, type HistoryState } from './hist
 
 export type ViewPreset = 'top' | 'bottom' | 'medial' | 'lateral' | 'front' | 'back' | 'iso';
 export type GizmoMode = 'none' | 'translate' | 'rotate';
+export type ScanDisplay = 'solid' | 'transparent' | 'hidden';
 export type Tool = 'none' | 'landmark' | 'clip' | 'holes';
 
 export interface ViewState {
@@ -16,8 +17,8 @@ export interface ViewState {
   showAxes: boolean;
   showLabels: boolean;
   gizmo: GizmoMode;
-  /** Show the scan (the insole designer can hide it: "Toggle scan visibility"). */
-  showScan: boolean;
+  /** How the scan is drawn – the insole designer can make it see-through or hide it. */
+  scanDisplay: ScanDisplay;
   showToeArrow: boolean;
 }
 
@@ -82,7 +83,7 @@ export const initialView: ViewState = {
   showAxes: true,
   showLabels: true,
   gizmo: 'none',
-  showScan: true,
+  scanDisplay: 'solid',
   showToeArrow: true,
 };
 

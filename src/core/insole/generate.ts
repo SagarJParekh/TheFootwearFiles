@@ -152,7 +152,8 @@ export function generateInsole(surface: PlantarSurface, params: InsoleParams): I
     const j = Math.min(g.ny - 1, Math.max(0, Math.round((b - g.b0) / g.h)));
     return plantar[j * g.nx + i];
   };
-  const mtLevel = Math.max(sampleAt(a1, b1), sampleAt(a5, b5));
+  // Forefoot level: height of the plantar surface under the 1st and 5th metatarsal heads.
+  const forefootLevel = (sampleAt(a1, b1) + sampleAt(a5, b5)) / 2;
 
   // --- surfaces ----------------------------------------------------------------------
   const top = new Float32Array(nodeCount);
@@ -173,9 +174,10 @@ export function generateInsole(surface: PlantarSurface, params: InsoleParams): I
       const k = j * g.nx + i;
       // "shape" moves the whole surface (the soft shell follows it); "material" only thickens.
       let shape = plantar[k];
-      // Toe area: flatten the toe spring / toe crests distal to the metatarsal heads.
-      const toeBlend = smoothstep(0, 15, distMT(a, b));
-      if (toeBlend > 0) shape = Math.min(shape, shape * (1 - toeBlend) + (mtLevel + 1) * toeBlend);
+      // Forefoot: from the M1–M5 line forward the insole is completely flat (no toe contours
+      // are traced). A 12 mm band just behind the line blends into the traced surface.
+      const flat = smoothstep(-12, 0, distMT(a, b));
+      if (flat > 0) shape = shape * (1 - flat) + forefootLevel * flat;
       let material = 0;
 
       // Medial arch pressure: push the insole up into (+) or away from (−) the medial arch.
