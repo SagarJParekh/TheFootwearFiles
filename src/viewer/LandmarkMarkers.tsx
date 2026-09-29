@@ -3,7 +3,8 @@ import { useThree, type ThreeEvent } from '@react-three/fiber';
 import { useEffect, useRef, useState } from 'react';
 import { LANDMARK_BY_ID, landmarksForScanType, type LandmarkId } from '../core/landmarks/definitions';
 import { dragLandmark, selectLandmark } from '../state/landmarkActions';
-import { beginGesture, endGesture, useStore } from '../state/store';
+import { beginGesture, useStore } from '../state/store';
+import { endLandmarkGesture } from '../state/basePlaneActions';
 import { pickSurface } from './picking';
 
 type ControlsLike = { enabled: boolean } | null;
@@ -36,7 +37,7 @@ export function LandmarkMarkers({ radius }: { radius: number }) {
       }
     };
     const onUp = () => {
-      if (moved.current) endGesture(`Move ${LANDMARK_BY_ID[dragging].label}`);
+      if (moved.current) endLandmarkGesture(`Move ${LANDMARK_BY_ID[dragging].label}`);
       else useStore.setState({ gestureStart: null });
       setDragging(null);
     };

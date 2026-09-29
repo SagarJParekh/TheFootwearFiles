@@ -18,6 +18,7 @@ export function ModelGroup({ children, visible = true }: { children: ReactNode; 
   const transform = useStore((s) => s.doc?.transform);
   const bounds = useStore((s) => s.derived?.stats.bounds);
   const gizmo = useStore((s) => s.view.gizmo);
+  const locked = useStore((s) => !!s.doc?.basePlaneLocked);
   const [pivot, setPivot] = useState<THREE.Group | null>(null);
   const dragging = useRef(false);
 
@@ -48,7 +49,7 @@ export function ModelGroup({ children, visible = true }: { children: ReactNode; 
           {children}
         </group>
       </group>
-      {pivot && gizmo !== 'none' && (
+      {pivot && gizmo !== 'none' && !locked && (
         <TransformControls
           object={pivot}
           mode={gizmo}

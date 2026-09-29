@@ -22,6 +22,7 @@ interface ProjectJson {
   transform: RigidTransform;
   landmarks: LandmarkMap;
   insole?: InsoleParams | null;
+  basePlaneLocked?: boolean;
   mesh: { vertexCount: number; triangleCount: number; positions: string; indices: string };
 }
 
@@ -54,6 +55,7 @@ export function serializeProject(doc: ProjectDocument, savedAt = new Date().toIS
     transform: doc.transform,
     landmarks: doc.landmarks,
     insole: doc.insole ?? null,
+    basePlaneLocked: !!doc.basePlaneLocked,
     mesh: {
       vertexCount: doc.mesh.positions.length / 3,
       triangleCount: doc.mesh.indices.length / 3,
@@ -104,6 +106,7 @@ export function deserializeProject(data: Uint8Array): ProjectDocument {
     mesh: makeMesh(positions, indices),
     transform: json.transform,
     landmarks,
+    basePlaneLocked: !!json.basePlaneLocked,
     insole: json.insole ? { ...defaultInsoleParams(), ...json.insole, orthosis: { ...defaultInsoleParams().orthosis, ...json.insole.orthosis } } : null,
   };
 }

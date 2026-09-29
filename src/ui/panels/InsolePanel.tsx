@@ -5,11 +5,11 @@ import {
   type HeelBaseWidth, type InsoleParams, type MortonsExtension, type Range, type WedgeSide, type WedgeType,
 } from '../../core/insole/params';
 import {
-  alignScanFromLandmarks, exportInsoleStl, insoleGesture, insoleLandmarks, setInsoleEnabled, toggleScanVisibility, updateInsole,
+  exportInsoleStl, insoleGesture, insoleLandmarks, setInsoleEnabled, toggleScanVisibility, updateInsole,
 } from '../../state/insoleActions';
-import { rotateStep } from '../../state/actions';
 import { setView, useStore } from '../../state/store';
 import { Panel, downloadBlob } from '../common';
+import { BasePlaneStatus } from './TransformPanel';
 
 // --- small controls -----------------------------------------------------------------------
 
@@ -145,22 +145,13 @@ export function InsolePanel() {
   return (
     <>
       <Panel title="1 · Align & set up">
-        <Field label="Align the scan">
-          <div className="button-row">
-            <button onClick={alignScanFromLandmarks} disabled={!ready} title="Plantar plane (heel centre, M1, M5) to the floor, heel → toes along the arrow">
-              Align from landmarks
-            </button>
-            <button onClick={() => setView({ gizmo: 'rotate' })} title="Rotate the scan by hand (gizmo)">Gizmo</button>
-          </div>
+        <Field label="Align the scan (base plane)">
+          <BasePlaneStatus locked={!!doc.basePlaneLocked} hasPoints={ready} />
         </Field>
         <Field
           label="Toes aligned in the arrow direction"
           right={<Switch checked={showToeArrow} onChange={(v) => setView({ showToeArrow: v })} />}
-        >
-          <button className="small" onClick={() => rotateStep(2, 180)} title="Rotate 180° about the vertical axis">
-            Flip toe direction
-          </button>
-        </Field>
+        />
         <Field label="Which side is model">
           <div className="row">
             <b>{doc.scan ? SIDE_LABEL[doc.scan.side] : '—'}</b>

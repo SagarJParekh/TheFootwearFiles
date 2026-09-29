@@ -32,6 +32,8 @@ export interface ProjectDocument {
   mesh: MeshData;
   transform: RigidTransform;
   landmarks: LandmarkMap;
+  /** True when the model is aligned to the heel/M1/M5 base plane and its transform is locked. */
+  basePlaneLocked?: boolean;
   /** Insole / orthosis design parameters (null until "Create the insole"). */
   insole?: InsoleParams | null;
 }

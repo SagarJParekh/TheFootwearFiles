@@ -3,13 +3,13 @@
  * scan from landmarks, and keep the generated insole in sync (debounced worker calls).
  */
 import type { ProjectDocument } from '../core/document';
-import { alignFromLandmarks } from '../core/align/landmarkAlign';
 import type { FrameLandmarks } from '../core/insole/frame';
 import { defaultInsoleParams, suggestShoeSize, type InsoleParams } from '../core/insole/params';
 import { applyTransform } from '../core/math/transform';
 import type { Vec3 } from '../core/types';
 import { meshWorker, withMesh } from '../workers/meshClient';
-import { requestCamera, setView, useStore, commit, beginGesture, updateLive, endGesture } from './store';
+import { setView, useStore, commit, beginGesture, updateLive, endGesture } from './store';
+import { setBasePlaneAction } from './basePlaneActions';
 import { withBusy } from './actions';
 
 const get = useStore.getState;
@@ -62,25 +62,9 @@ export const insoleGesture = {
   end: (label: string) => endGesture(label),
 };
 
-/** "Align the scan": plantar plane (HC, M1, M5) to the floor, heel→toes along +Y. */
+/** "Align the scan": sets the heel/M1/M5 base plane (aligns and locks the model). */
 export function alignScanFromLandmarks(): void {
-  const { doc, derived } = get();
-  if (!doc) return;
-  const hc = doc.landmarks.heelCentre?.local, m1 = doc.landmarks.met1Head?.local, m5 = doc.landmarks.met5Head?.local;
-  if (!hc || !m1 || !m5) {
-    set({ error: 'Place the heel centre and 1st/5th metatarsal heads first' });
-    return;
-  }
-  const b = derived?.stats.bounds;
-  const centroid: Vec3 = b ? [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2] : hc;
-  const above = doc.landmarks.archPeak?.local ?? centroid;
-  try {
-    const t = alignFromLandmarks({ heelCentre: hc, met1Head: m1, met5Head: m5, abovePoint: above });
-    commit('Align from landmarks', (d) => ({ ...d, transform: t }));
-    requestCamera('preset', 'iso');
-  } catch (e) {
-    set({ error: e instanceof Error ? e.message : String(e) });
-  }
+  setBasePlaneAction();
 }
 
 export function toggleScanVisibility(): void {

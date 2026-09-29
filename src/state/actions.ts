@@ -9,6 +9,7 @@ import { IDENTITY_TRANSFORM, makeMesh, type MeshData, type RigidTransform, type 
 import { reinterpretation, UNIT_LABEL, UNIT_TO_MM, type LengthUnit, type UpAxis } from '../core/units';
 import { formatForFile, unsupportedMessage } from '../formats/registry';
 import type { LoadResult } from '../workers/mesh.worker';
+import { transformLocked } from './basePlaneActions';
 import * as Comlink from 'comlink';
 import { meshWorker, withMesh } from '../workers/meshClient';
 import { commit, requestCamera, resetDocument, useStore, type MeshDerived } from './store';
@@ -118,6 +119,7 @@ export function reinterpretImport(units: LengthUnit, upAxis: UpAxis): void {
   const doc = get().doc;
   const from = doc?.meta.import;
   if (!doc || !from || (from.units === units && from.upAxis === upAxis)) return;
+  if (transformLocked()) return;
   const r = reinterpretation(from, { units, upAxis });
   const s = UNIT_TO_MM[units] / UNIT_TO_MM[from.units];
   commit(`Units/axis: ${UNIT_LABEL[units]}, ${upAxis.toUpperCase()} up`, (d) => ({
@@ -191,6 +193,7 @@ export function meshCentre(): Vec3 {
 }
 
 export function setTransform(t: RigidTransform, label = 'Transform'): void {
+  if (transformLocked()) return;
   commit(label, (doc) => ({ ...doc, transform: t }));
 }
 

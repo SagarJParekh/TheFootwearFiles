@@ -85,6 +85,18 @@ To try the app without a real scan, use the **Samples** menu:
 - **Project file:** save and open a whole session (mesh, transform, landmarks, scan info) as a `.tffproj` file.
 - Files can also be opened by dropping `.stl`, `.tffproj` or landmark `.json` files onto the window.
 
+## Base plane (heel centre · 1st MT head · 5th MT head)
+
+As soon as the **heel centre**, **1st metatarsal head** and **5th metatarsal head** are all placed, the plane through those three points becomes the **base plane**:
+
+- **Alignment:** the model is moved so the base plane is the floor (Z = 0), with the heel centre at the origin and heel → toes along +Y. The foot always ends up above the plane; the arch peak, or else the scan's centroid, decides which side is "up".
+- **Lock:** the model's position and rotation are then **locked**. The Move/Rotate gizmo, the numeric position and rotation fields, quick-rotate, Centre on floor, Reset, the G/R shortcuts, and changing units or up axis in Scan setup are all disabled. Any other attempt to rotate is refused with a message.
+- **Moving a point:** dragging or re-placing one of the three landmarks recalculates the plane from the new positions. The lock stays on.
+- **Deleting a point:** deleting one of the three releases the lock, because the plane is no longer defined.
+- **Display:** the plane is drawn as a green triangle through the three points (grey and dashed when not set). The Transform panel and the Insole designer show the lock status.
+- **Releasing:** **Release base plane** unlocks the model on purpose.
+- The lock can be undone like any other edit and is saved in project files.
+
 ## Insole designer (right sidebar → "Insole designer")
 
 This replicates the reference orthotic-design workflow step by step. Every control and range matches the reference tool, and every change can be undone.
@@ -93,9 +105,8 @@ This replicates the reference orthotic-design workflow step by step. Every contr
 
 | Control | What it does |
 | --- | --- |
-| Align the scan → **Align from landmarks** | Rotates and moves the scan so the plantar plane through the heel centre, M1 and M5 lies on the floor, heel → toes points along +Y, and the heel centre is at the origin |
-| Gizmo | Aligns by hand instead |
-| **Toes aligned in the arrow direction** | Shows the green toe arrow; **Flip toe direction** rotates the scan 180° |
+| Align the scan (base plane) | Set automatically from the heel centre, M1 and M5 (see [Base plane](#base-plane-heel-centre--1st-mt-head--5th-mt-head)); the model is then locked |
+| **Toes aligned in the arrow direction** | Shows the green toe arrow (+Y); the base plane always points the toes along it |
 | Which side is model | Left or right (set in Scan setup) |
 | Landmarks | Heel centre, 1st and 5th metatarsal heads are required; the arch peak is optional (it positions the arch-pressure bump) |
 | **Shoe Size** | UK2–UK13 in half sizes. Insole length = (size + 25) barleycorns − 5 mm, so UK8 = 274 mm. A size is suggested from the scan's footprint length |
@@ -249,7 +260,7 @@ src/
 
 ## Tests
 
-- `npm test`: 76 unit tests covering:
+- `npm test`: 79 unit tests covering:
   - STL round-trips (binary and ASCII, the "solid"-header binary edge case, malformed input), welding, watertight and non-manifold detection
   - transform maths
   - hole detection: counts, perimeters, pinch splitting, rim suggestion
@@ -259,9 +270,9 @@ src/
   - landmark JSON/CSV serialisation and import fallback
   - measurements, including arch height to a tilted plane
   - project round-trip and corrupt-file rejection
-  - insole designer: shoe-size length, padding thickness, narrow profile, arch pressure, MT pad/bar, fascia groove, wedges, heel cup, orthosis (3/4 length, heel post, heel raise, Morton's extension, offloads, heel hole), open plantar scans, landmark alignment
+  - insole designer: shoe-size length, padding thickness, narrow profile, arch pressure, MT pad/bar, fascia groove, wedges, heel cup, orthosis (3/4 length, heel post, heel raise, Morton's extension, offloads, heel hole), open plantar scans, landmark alignment and the base-plane lock (set, follow moved points, release on delete)
   - file formats: OBJ (quads, negative indices), PLY (ASCII, binary, point-cloud rejection), OFF, 3DM, STEP/IGES (including metre and inch files), unit guessing, Y-up conversion and re-interpretation
-- `npm run e2e`: browser smoke test of the main workflow, the insole designer (create → modifications → orthosis → undo → download), plus an import test of every format fixture (3MF, AMF, glTF/GLB, DAE, VRML, 3DM, STEP, IGES, …).
+- `npm run e2e`: browser smoke test of the main workflow, the insole designer (create → modifications → orthosis → undo → download), the base plane (auto-set on a tilted scan, rotation refused, re-align, release, undo), plus an import test of every format fixture (3MF, AMF, glTF/GLB, DAE, VRML, 3DM, STEP, IGES, …).
 
 ## Known limitations
 
@@ -289,6 +300,5 @@ src/
 - **Insole designer:**
   - The insole shape comes from simple rules, not a clinical template. The outline is a spline fitted to the shoe size and M1/M5, and the feature positions are fixed offsets from the landmarks (MT pad 12 mm behind the metatarsal line, fascia groove heel → 1st/2nd ray, and so on).
   - Arch pressure is a smooth bump centred on the arch landmark, or estimated if that isn't placed.
-  - The scan must be aligned sole-down (use **Align from landmarks**).
   - The orthosis walls are vertical; there is no flare or bevel yet.
 - **Undo memory:** history is capped at 600 MB of mesh data. On very large meshes only the last few mesh edits can be undone.

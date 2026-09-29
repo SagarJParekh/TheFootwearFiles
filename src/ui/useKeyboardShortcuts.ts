@@ -20,7 +20,8 @@ export function useKeyboardShortcuts() {
         e.preventDefault();
         redoEdit();
       } else if (!mod && !useStore.getState().scanDialogOpen) {
-        const { view } = useStore.getState();
+        const { view, doc } = useStore.getState();
+        if ((k === 'g' || k === 'r') && doc?.basePlaneLocked) return;
         if (k === 'g') setView({ gizmo: view.gizmo === 'translate' ? 'none' : 'translate' });
         else if (k === 'r') setView({ gizmo: view.gizmo === 'rotate' ? 'none' : 'rotate' });
         else if (k === 'f') requestCamera('fit');

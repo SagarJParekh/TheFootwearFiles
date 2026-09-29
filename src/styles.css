@@ -167,3 +167,7 @@ button.download { width: 100%; background: #22a652; border-color: #22a652; color
 .check-list { list-style: none; padding: 0; margin: 4px 0; font-size: 12px; }
 .check-list li::before { content: '✔ '; color: var(--ok); }
 .check-list li.todo::before { content: '○ '; color: var(--muted); }
+fieldset.plain { border: none; margin: 0; padding: 0; min-width: 0; }
+fieldset.plain:disabled { opacity: 0.5; }
+.lock-banner { display: flex; flex-direction: column; gap: 5px; align-items: flex-start; background: #e3f4ea; color: #1b6b3d; border: 1px solid #b9e2c8; border-radius: 6px; padding: 6px 8px; font-size: 12px; margin-bottom: 6px; }
+.lock-banner.open { background: #f6f7f9; color: var(--muted); border-color: var(--border); }

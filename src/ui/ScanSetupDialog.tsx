@@ -15,6 +15,7 @@ export function ScanSetupDialog() {
   const [type, setType] = useState<ScanType>(current?.type ?? 'plantar');
   const [side, setSide] = useState<Side>(current?.side ?? 'right');
   const importInfo = useStore((s) => s.doc?.meta.import);
+  const locked = useStore((s) => !!s.doc?.basePlaneLocked);
   const bounds = useStore((s) => s.derived?.stats.bounds);
   const [units, setUnits] = useState<LengthUnit>(importInfo?.units ?? 'mm');
   const [upAxis, setUpAxis] = useState<UpAxis>(importInfo?.upAxis ?? 'z');
@@ -78,7 +79,7 @@ export function ScanSetupDialog() {
             <div className="row">
               <label>
                 Units
-                <select value={units} onChange={(e) => setUnits(e.target.value as LengthUnit)} data-testid="units-select">
+                <select value={units} disabled={locked} onChange={(e) => setUnits(e.target.value as LengthUnit)} data-testid="units-select">
                   {UNITS.map((u) => (
                     <option key={u} value={u}>
                       {UNIT_LABEL[u]}
@@ -88,12 +89,13 @@ export function ScanSetupDialog() {
               </label>
               <label>
                 Up axis
-                <select value={upAxis} onChange={(e) => setUpAxis(e.target.value as UpAxis)}>
+                <select value={upAxis} disabled={locked} onChange={(e) => setUpAxis(e.target.value as UpAxis)}>
                   <option value="z">Z up</option>
                   <option value="y">Y up</option>
                 </select>
               </label>
             </div>
+            {locked && <p className="hint warn" style={{ marginTop: 0 }}>Locked by the base plane – release it to change units or axis.</p>}
             <p className="hint" style={{ marginTop: 0 }}>
               Units {SOURCE_NOTE[units === importInfo.units ? importInfo.unitsSource : 'user']}.
               {bounds && (

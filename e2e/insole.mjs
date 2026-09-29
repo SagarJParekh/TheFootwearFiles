@@ -36,7 +36,7 @@ try {
     st.setState({ doc: { ...d, landmarks: { heelCentre: { local: [4, 38, 0.2], placedAt: now }, met1Head: { local: [-26, 182, 0.3], placedAt: now }, met5Head: { local: [44, 165, 0.3], placedAt: now } } } });
   });
   await page.click('[data-testid=tab-insole]');
-  await page.click('text=Align from landmarks');
+  await page.click('[data-testid=set-base-plane] >> nth=0');
   await page.click('[data-testid=create-insole] + span');
   await page.waitForFunction(() => window.__app.useStore.getState().insole, null, { timeout: 60000 });
   await settle();

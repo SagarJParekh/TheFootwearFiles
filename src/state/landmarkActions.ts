@@ -3,6 +3,8 @@ import { LANDMARK_BY_ID, landmarksForScanType, type LandmarkId } from '../core/l
 import type { Vec3 } from '../core/types';
 import { meshWorker, withMesh } from '../workers/meshClient';
 import { commit, setTool, updateLive, useStore } from './store';
+import { syncBasePlane } from '../core/align/basePlane';
+import { autoSetBasePlane } from './basePlaneActions';
 
 const get = useStore.getState;
 const set = useStore.setState;
@@ -28,11 +30,11 @@ function nextMissing(after: LandmarkId): LandmarkId | null {
 
 export function placeLandmark(id: LandmarkId, local: Vec3): void {
   const existed = !!get().doc?.landmarks[id];
-  commit(`${existed ? 'Re-place' : 'Place'} ${LANDMARK_BY_ID[id].label}`, (doc) => ({
-    ...doc,
-    landmarks: { ...doc.landmarks, [id]: { local, placedAt: new Date().toISOString() } },
-  }));
+  commit(`${existed ? 'Re-place' : 'Place'} ${LANDMARK_BY_ID[id].label}`, (doc) =>
+    syncBasePlane({ ...doc, landmarks: { ...doc.landmarks, [id]: { local, placedAt: new Date().toISOString() } } }),
+  );
   clearOffSurface(id);
+  autoSetBasePlane();
   // Advance to the next missing landmark so a full set can be placed click-by-click.
   const next = nextMissing(id);
   selectLandmark(next);
@@ -49,16 +51,18 @@ export function dragLandmark(id: LandmarkId, local: Vec3): void {
 }
 
 export function deleteLandmark(id: LandmarkId): void {
+  const wasLocked = !!get().doc?.basePlaneLocked;
   commit(`Delete ${LANDMARK_BY_ID[id].label}`, (doc) => {
     const landmarks = { ...doc.landmarks };
     delete landmarks[id];
-    return { ...doc, landmarks };
+    return syncBasePlane({ ...doc, landmarks });
   });
+  if (wasLocked && !get().doc?.basePlaneLocked) set({ notice: 'Base plane released – one of its three landmarks was deleted.' });
   clearOffSurface(id);
 }
 
 export function clearAllLandmarks(): void {
-  commit('Clear landmarks', (doc) => (Object.keys(doc.landmarks).length ? { ...doc, landmarks: {} } : doc));
+  commit('Clear landmarks', (doc) => (Object.keys(doc.landmarks).length ? syncBasePlane({ ...doc, landmarks: {} }) : doc));
   set({ offSurface: {} });
 }
 
@@ -123,11 +127,10 @@ export async function importLandmarksFile(file: File): Promise<void> {
   try {
     const parsed = parseLandmarksJson(await file.text(), doc.transform);
     const count = Object.keys(parsed.landmarks).length;
-    commit(`Import ${count} landmarks`, (d) => ({
-      ...d,
-      scan: parsed.scan ?? d.scan,
-      landmarks: { ...d.landmarks, ...parsed.landmarks },
-    }));
+    commit(`Import ${count} landmarks`, (d) =>
+      syncBasePlane({ ...d, scan: parsed.scan ?? d.scan, landmarks: { ...d.landmarks, ...parsed.landmarks } }),
+    );
+    autoSetBasePlane();
     const notes = [...parsed.warnings];
     if (parsed.sourceFileName && parsed.sourceFileName !== doc.meta.sourceFileName) {
       notes.push(`landmarks were exported from "${parsed.sourceFileName}"`);
