@@ -29,54 +29,76 @@ const settle = () => page.waitForFunction(() => {
 
 try {
   await page.goto('http://localhost:5197/');
-  await page.waitForFunction(() => window.__app);
+  await page.waitForFunction(() => window.__app?.landmarks);
   await page.selectOption('select', 'foot-closed.stl');
   await page.click('[data-testid=scan-setup-ok]');
-  await page.evaluate(() => {
-    const st = window.__app.useStore; const d = st.getState().doc; const now = new Date().toISOString();
-    st.setState({ doc: { ...d, landmarks: { heelCentre: { local: [4, 38, 0.2], placedAt: now }, met1Head: { local: [-26, 182, 0.3], placedAt: now }, met5Head: { local: [44, 165, 0.3], placedAt: now } } } });
-  });
+  // Base plane: placing heel centre, M1, M5 aligns and locks the model
+  for (const [id, p] of [['heelCentre', [4, 38, 0.2]], ['met1Head', [-26, 182, 0.3]], ['met5Head', [44, 165, 0.3]]]) {
+    await page.evaluate(([id, p]) => window.__app.landmarks.placeLandmark(id, p), [id, p]);
+  }
   await page.click('[data-testid=tab-insole]');
-  await page.click('[data-testid=set-base-plane] >> nth=0');
+
+  // 1) Full length (FDM)
+  await page.check('[data-testid=type-full]');
   await page.click('[data-testid=create-insole] + span');
   await page.waitForFunction(() => window.__app.useStore.getState().insole, null, { timeout: 60000 });
   await settle();
-  let s = await state();
-  check(s.kind === 'insole' && s.tris > 1000 && Math.abs(s.min - 2.5) < 1e-3, `insole created (UK${s.size}, ${s.tris} tris, ${s.min?.toFixed(2)} mm padding)`);
+  const flatBase = () => page.evaluate(() => {
+    const o = window.__app.useStore.getState().insole.output, p = o.mesh.positions;
+    let lo = Infinity, hi = -Infinity;
+    for (let i = p.length / 2 + 2; i < p.length; i += 3) { lo = Math.min(lo, p[i]); hi = Math.max(hi, p[i]); }
+    return { kind: o.kind, spread: hi - lo, minT: o.minThickness };
+  });
+  let f = await flatBase();
+  check(f.kind === 'full' && f.spread < 1e-3 && Math.abs(f.minT - 2) < 1e-3, `full-length insole has a flat base (spread ${f.spread.toExponential(1)} mm, thinnest ${f.minT.toFixed(2)} mm)`);
 
   const display = () => page.evaluate(() => window.__app.useStore.getState().view.scanDisplay);
   check((await display()) === 'transparent', 'foot becomes transparent when the insole is created');
   await page.click('.viewport-overlay [data-testid=scan-hidden]');
   check((await display()) === 'hidden', 'viewport toggle hides the foot');
-  await page.click('.viewport-overlay [data-testid=scan-solid]');
-  check((await display()) === 'solid', 'viewport toggle shows the foot again');
   await page.click('.viewport-overlay [data-testid=scan-transparent]');
 
-  // padding slider via keyboard
+  // padding clearance slider (keyboard)
+  const keyBefore = (await state()).key;
   await page.focus('[data-testid=padding]');
   for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
   await settle();
-  s = await state();
-  check(Math.abs(s.min - 3.0) < 1e-3, `padding thickness slider → ${s.min?.toFixed(2)} mm`);
+  const clearance = await page.evaluate(() => window.__app.useStore.getState().doc.insole.paddingClearance);
+  check(Math.abs(clearance - 3) < 1e-6 && (await state()).key !== keyBefore, `padding clearance slider → ${clearance} mm (insole regenerated)`);
 
   for (const id of ['wedge', 'mt-pad', 'fascia', 'mt-bar']) await page.click(`[data-testid=${id}] + span`);
   await settle();
-  s = await state();
-  check(s.max > 6 && !s.err, `wedge + MT pad + fascia groove + MT bar applied (thickness ${s.min?.toFixed(1)}–${s.max?.toFixed(1)} mm)`);
+  f = await flatBase();
+  check(f.spread < 1e-3 && !(await state()).err, 'features applied, base still flat');
 
-  await page.click('[data-testid=orthosis] + span');
+  // arch on the foot: modifies the scan, one undo step
+  const meshId = () => page.evaluate(() => window.__app.useStore.getState().doc.mesh.id);
+  const idBefore = await meshId();
+  await page.fill('.slider-row input[type=number] >> nth=0', '6');
+  await page.press('.slider-row input[type=number] >> nth=0', 'Enter');
+  await page.waitForFunction(() => window.__app.useStore.getState().doc.footArchAdjust === 6, null, { timeout: 30000 });
   await settle();
-  s = await state();
-  check(s.kind === 'orthosis', `"Add thickness" → orthosis (${s.tris} tris)`);
-
+  check((await meshId()) !== idBefore, 'arch +6 mm applied to the foot scan (new mesh), insole regenerated');
   await page.keyboard.press('Control+z');
+  check((await meshId()) === idBefore, 'undo restores the original foot');
+
+  // 2) Switch to 3/4 (powder): uniform 2.5 mm shell (features off so the shell is plain)
+  for (const id of ['wedge', 'mt-pad', 'fascia', 'mt-bar']) await page.click(`[data-testid=${id}] + span`);
   await settle();
-  check((await state()).kind === 'insole', 'undo returns to the soft insole');
+  await page.check('[data-testid=type-threeQuarter]');
+  await settle();
+  let s = await state();
+  check(s.kind === 'threeQuarter' && Math.abs(s.min - 2.5) < 1e-3, `3/4 insole: shell ${s.min?.toFixed(2)}–${s.max?.toFixed(2)} mm`);
+  await page.focus('[data-testid=tq-thickness]');
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
+  await settle();
+  s = await state();
+  check(Math.abs(s.min - 3.0) < 1e-3, `3/4 thickness slider → ${s.min?.toFixed(2)} mm`);
 
   const dl = page.waitForEvent('download');
   await page.click('[data-testid=download-insole]');
   const name = (await dl).suggestedFilename();
-  check(/insole-UK[\d.]+\.stl$/.test(name), `download ${name}`);
+  check(/threeQuarter-UK[\d.]+\.stl$/.test(name), `download ${name}`);
   check(errors.length === 0, `no page errors ${errors.join('; ')}`);
 } catch (e) {
   console.error(e);

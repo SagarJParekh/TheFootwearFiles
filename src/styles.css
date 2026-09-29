@@ -178,3 +178,8 @@ fieldset.plain:disabled { opacity: 0.5; }
 .segmented.compact button { padding: 3px 8px; font-size: 12px; }
 .viewport-overlay { position: absolute; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.92); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 12px; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
 .viewport-overlay.top-left { top: 10px; left: 10px; }
+.type-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+.type-card { display: flex; gap: 6px; align-items: flex-start; border: 1px solid var(--border); border-radius: 8px; padding: 7px; cursor: pointer; background: #fff; }
+.type-card.active { border-color: #22a652; background: #eaf7ef; }
+.type-card span { display: flex; flex-direction: column; }
+.type-card small { color: var(--muted); font-size: 11px; }

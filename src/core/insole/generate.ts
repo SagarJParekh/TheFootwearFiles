@@ -1,5 +1,5 @@
 /**
- * Parametric insole / orthosis generator.
+ * Parametric insole generator (full length FDM / 3/4 length powder).
  *
  * 1. The aligned scan (world coords, sole down) is rasterised into a height map of its lowest
  *    surface – the plantar surface – on a grid in the insole frame (heel centre → metatarsals).
@@ -8,15 +8,17 @@
  *    operations (signed distance fields).
  * 4. A closed solid is meshed between the top and bottom surfaces.
  *
- * Soft insole: full length, shell of `paddingThickness` following the plantar surface.
- * Orthosis ("Add thickness"): 3/4 length (+ Morton's options), underside filled flat to the
- * ground through the rearfoot/midfoot, heel post, apertures for offloads, optional heel hole.
+ * Top surface (both types) = plantar surface − padding clearance + added features, with the
+ * forefoot flat from the M1–M5 line forward (full length).
+ * Full length (FDM): solid down to a completely flat base.
+ * 3/4 length (powder): shell of uniform thickness; optional heel post, Morton's extension,
+ * offload apertures and heel hole.
  */
 import { makeMesh, type MeshData } from '../types';
 import { buildInsoleFrame, frameToWorld, type FrameLandmarks, type InsoleFrame } from './frame';
 import { fillMissing, gaussianBlur, rasterizeLowestSurface, type Grid } from './heightfield';
 import { circleSdf, insoleOutline, polygonSdf, sdfIntersect, sdfSubtract, sdfUnion, type Pt } from './outline';
-import { insoleLengthMm, METATARSALS, type InsoleParams } from './params';
+import { insoleLengthMm, METATARSALS, type InsoleParams, type InsoleType } from './params';
 import { buildSolid } from './solidMesh';
 
 export const GRID_SPACING_MM = 1;
@@ -71,7 +73,9 @@ export interface InsoleResult {
   minThickness: number;
   maxThickness: number;
   footLength: number | null;
-  kind: 'insole' | 'orthosis';
+  kind: InsoleType;
+  /** Z of the flat base (full length) – the print bed plane. */
+  baseZ: number | null;
 }
 
 const smoothstep = (e0: number, e1: number, x: number) => {
@@ -89,9 +93,10 @@ export function generateInsole(surface: PlantarSurface, params: InsoleParams): I
   const m = frame.medialSign;
   const [a1, b1] = frame.met1, [a5, b5] = frame.met5;
   const bMT = (b1 + b5) / 2;
-  const orth = params.orthosis.enabled;
+  const tq = params.type === 'threeQuarter';
+  const TQ = params.threeQuarter;
 
-  // --- outline(s) -------------------------------------------------------------------
+  // --- outline --------------------------------------------------------------------------
   const outline: Pt[] = insoleOutline({ frame, length: L, heelBack, narrow: params.narrowProfile });
   // MT line: from M1 to M5; distal normal points towards the toes.
   let mtDirA = a5 - a1, mtDirB = b5 - b1;
@@ -120,21 +125,21 @@ export function generateInsole(surface: PlantarSurface, params: InsoleParams): I
         rowMax[j] = Math.max(rowMax[j], a);
       }
       let d = d0;
-      if (orth) {
-        const cut = distMT(a, b) + 6; // keep proximal of (MT line − 6 mm)
+      if (tq) {
+        const cut = distMT(a, b) + 6; // 3/4 length: ends 6 mm proximal of the MT line
         const proximal = sdfIntersect(d0, cut);
         let extension = Infinity;
         const c = acrossMT(a, b);
-        if (params.orthosis.mortonsExtension === 'mortons') extension = sdfIntersect(d0, (c - 0.22) * mtLen);
-        if (params.orthosis.mortonsExtension === 'reverseMortons') extension = sdfIntersect(d0, (0.22 - c) * mtLen);
+        if (TQ.mortonsExtension === 'mortons') extension = sdfIntersect(d0, (c - 0.22) * mtLen);
+        if (TQ.mortonsExtension === 'reverseMortons') extension = sdfIntersect(d0, (0.22 - c) * mtLen);
         d = sdfUnion(proximal, extension);
-        if (params.orthosis.provideOffloads) {
-          for (const id of params.orthosis.offloads) {
+        if (TQ.provideOffloads) {
+          for (const id of TQ.offloads) {
             const [ha, hb] = mtHead(METATARSALS.indexOf(id) + 1);
             d = sdfSubtract(d, circleSdf(ha, hb - 3, 9, a, b));
           }
         }
-        if (params.orthosis.holeInHeel) d = sdfSubtract(d, circleSdf(0, 0, 10, a, b));
+        if (TQ.holeInHeel) d = sdfSubtract(d, circleSdf(0, 0, 10, a, b));
       }
       sdf[k] = d;
     }
@@ -155,16 +160,17 @@ export function generateInsole(surface: PlantarSurface, params: InsoleParams): I
   // Forefoot level: height of the plantar surface under the 1st and 5th metatarsal heads.
   const forefootLevel = (sampleAt(a1, b1) + sampleAt(a5, b5)) / 2;
 
-  // --- surfaces ----------------------------------------------------------------------
+  // --- top surface ------------------------------------------------------------------------
+  // "shape" = where the insole's top would be without added features (the foot surface minus
+  // the padding clearance); "material" = features added on top (pads, bar, wedge, groove).
+  const shapeTop = new Float32Array(nodeCount);
   const top = new Float32Array(nodeCount);
-  const bottom = new Float32Array(nodeCount);
-  const archA = frame.arch?.[0] ?? m * Math.max(12, 0.45 * Math.abs(a1));
-  const archB = frame.arch?.[1] ?? 0.45 * bMT;
   const padA = a1 + 0.4 * (a5 - a1), padB = b1 + 0.4 * (b5 - b1) - 12;
   const grooveStart: Pt = [m * 3, 12];
   const grooveEnd: Pt = [a1 + 0.3 * (a5 - a1) - distalA * 22, b1 + 0.3 * (b5 - b1) - distalB * 22];
   const tanW = Math.tan((params.wedge.angleDeg * Math.PI) / 180);
-  const hr = params.orthosis.heelRaise;
+  const hr = tq ? TQ.heelRaise : 0;
+  const clearance = params.paddingClearance;
 
   for (let j = 0; j < g.ny; j++) {
     const b = g.b0 + j * g.h;
@@ -172,40 +178,32 @@ export function generateInsole(surface: PlantarSurface, params: InsoleParams): I
     for (let i = 0; i < g.nx; i++) {
       const a = g.a0 + i * g.h;
       const k = j * g.nx + i;
-      // "shape" moves the whole surface (the soft shell follows it); "material" only thickens.
       let shape = plantar[k];
       // Forefoot: from the M1–M5 line forward the insole is completely flat (no toe contours
       // are traced). A 12 mm band just behind the line blends into the traced surface.
       const flat = smoothstep(-12, 0, distMT(a, b));
       if (flat > 0) shape = shape * (1 - flat) + forefootLevel * flat;
-      let material = 0;
-
-      // Medial arch pressure: push the insole up into (+) or away from (−) the medial arch.
-      if (params.medialArchPressure !== 0) {
-        shape += params.medialArchPressure * bump(((a - archA) / 22) ** 2 + ((b - archB) / (0.22 * L)) ** 2);
-      }
-      // Heel raise (orthosis): lift the rearfoot, tapering to zero at the metatarsals.
-      const lift = orth && hr > 0 ? hr * smoothstep(bMT - 10, 0.35 * bMT, b) : 0;
+      // Heel raise (3/4): lift the rearfoot, tapering to zero at the metatarsals.
+      const lift = hr > 0 ? hr * smoothstep(bMT - 10, 0.35 * bMT, b) : 0;
       shape += lift;
-      // Heel cup: near the edge of the rearfoot the surface blends to a rim heelCupHeight above
-      // the ground (and follows the heel raise).
+      // Heel cup: near the rearfoot edge the surface blends to a rim heelCupHeight above the ground.
       const inward = -outlineSdf[k];
       const cupRegion = smoothstep(0.55, 0.3, s);
       if (cupRegion > 0 && inward < 14) {
         const f = smoothstep(14, 0, inward) * cupRegion;
         shape = shape * (1 - f) + (z0 + params.heelCupHeight + lift) * f;
       }
+      // Padding clearance: the printed insole stays this far below the foot.
+      shape -= clearance;
 
-      // Metatarsal pad: dome just proximal to the 2nd–4th metatarsal heads.
+      let material = 0;
       if (params.mtPad.enabled && params.mtPad.height > 0) {
         material += params.mtPad.height * bump(((a - padA) / 12) ** 2 + ((b - padB) / 17) ** 2);
       }
-      // Metatarsal bar: transverse ridge just proximal to the MT line, full width.
       if (params.mtBar.enabled) {
         const dm = distMT(a, b) + 10;
         if (Math.abs(dm) < 10) material += params.mtBar.thickness * 0.5 * (1 + Math.cos((Math.PI * dm) / 10));
       }
-      // Plantar fascia groove: channel along the medial band from heel to the 1st/2nd ray.
       if (params.fasciaGroove.enabled && params.fasciaGroove.depth > 0) {
         const ex = grooveEnd[0] - grooveStart[0], ey = grooveEnd[1] - grooveStart[1];
         const tt = Math.max(0, Math.min(1, ((a - grooveStart[0]) * ex + (b - grooveStart[1]) * ey) / (ex * ex + ey * ey)));
@@ -215,45 +213,55 @@ export function generateInsole(surface: PlantarSurface, params: InsoleParams): I
           material -= params.fasciaGroove.depth * 0.5 * (1 + Math.cos((Math.PI * dd) / 6)) * taper;
         }
       }
-      // Wedge (posting): tilt about the opposite border, in the chosen region.
       if (params.wedge.enabled && tanW > 0 && Number.isFinite(rowMin[j])) {
         const region = params.wedge.type === 'full' ? 1 : params.wedge.type === 'heel' ? smoothstep(0.5, 0.35, s) : smoothstep(0.5, 0.6, s);
         const raisedSign = params.wedge.side === 'medial' ? m : -m;
         const pivot = raisedSign > 0 ? rowMin[j] : rowMax[j];
         material += tanW * Math.abs(a - pivot) * region;
       }
-
-      const t = shape + material;
-      top[k] = t;
-
-      if (!orth) {
-        bottom[k] = shape - params.paddingThickness;
-      } else {
-        const fp = params.orthosis.footplateThickness;
-        const shellBottom = shape - fp; // follows the shape, not pads/grooves added on top
-        // Filled underside through rearfoot/midfoot, blending to a shell before the MT line.
-        const fill = smoothstep(bMT - 12, 0.55 * bMT, b);
-        const postWidth = { narrow: 0.7, normal: 0.85, wide: 1.0 }[params.orthosis.heelBaseWidth];
-        const hasRow = Number.isFinite(rowMin[j]);
-        const half = hasRow ? Math.max(1, (rowMax[j] - rowMin[j]) / 2) : 1;
-        const centre = hasRow ? (rowMax[j] + rowMin[j]) / 2 : 0;
-        const inPost = smoothstep(postWidth, postWidth - 0.3, Math.abs(a - centre) / half);
-        const post = smoothstep(0.45 * bMT, 0.25 * bMT, b);
-        const ground = z0 - fp - params.orthosis.heelHeight * post * inPost;
-        const filled = Math.min(ground, shellBottom);
-        const w = fill * (0.35 + 0.65 * inPost);
-        bottom[k] = shellBottom * (1 - w) + filled * w;
-      }
-      if (bottom[k] > top[k] - MIN_THICKNESS) bottom[k] = top[k] - MIN_THICKNESS;
+      shapeTop[k] = shape;
+      top[k] = shape + material;
     }
   }
 
-  // Smooth the orthosis underside (post/shell blends) and re-apply the minimum thickness.
-  if (orth) {
-    const smooth = gaussianBlur(bottom, g, 1.5);
-    const minT = params.orthosis.footplateThickness;
-    for (let k = 0; k < nodeCount; k++) bottom[k] = Math.min(smooth[k], top[k] - Math.min(minT, top[k] - bottom[k]));
+  // --- bottom surface -------------------------------------------------------------------
+  const bottom = new Float32Array(nodeCount);
+  let baseZ: number | null = null;
+  if (!tq) {
+    // Full length (FDM): one flat base under everything, baseThickness below the lowest top point.
+    let minTop = Infinity;
+    for (let k = 0; k < nodeCount; k++) if (sdf[k] < 0 && top[k] < minTop) minTop = top[k];
+    baseZ = minTop - params.full.baseThickness;
+    bottom.fill(baseZ);
+  } else {
+    // 3/4 length (powder): uniform shell under the shape, plus an optional heel post.
+    const posted = TQ.heelHeight > 0 || TQ.heelRaise > 0;
+    const postWidth = { narrow: 0.7, normal: 0.85, wide: 1.0 }[TQ.heelBaseWidth];
+    const ground = z0 - clearance - TQ.thickness - TQ.heelHeight;
+    for (let j = 0; j < g.ny; j++) {
+      const b = g.b0 + j * g.h;
+      const hasRow = Number.isFinite(rowMin[j]);
+      const half = hasRow ? Math.max(1, (rowMax[j] - rowMin[j]) / 2) : 1;
+      const centre = hasRow ? (rowMax[j] + rowMin[j]) / 2 : 0;
+      const postAlong = smoothstep(0.45 * bMT, 0.25 * bMT, b);
+      for (let i = 0; i < g.nx; i++) {
+        const a = g.a0 + i * g.h;
+        const k = j * g.nx + i;
+        const shell = shapeTop[k] - TQ.thickness;
+        if (!posted) {
+          bottom[k] = shell;
+          continue;
+        }
+        const w = postAlong * smoothstep(postWidth, postWidth - 0.3, Math.abs(a - centre) / half);
+        bottom[k] = shell * (1 - w) + Math.min(ground, shell) * w;
+      }
+    }
+    if (posted) {
+      const smooth = gaussianBlur(bottom, g, 1.5);
+      for (let k = 0; k < nodeCount; k++) bottom[k] = Math.min(smooth[k], shapeTop[k] - TQ.thickness);
+    }
   }
+  for (let k = 0; k < nodeCount; k++) if (bottom[k] > top[k] - MIN_THICKNESS) bottom[k] = top[k] - MIN_THICKNESS;
 
   // --- mesh ----------------------------------------------------------------------------
   const mesh = buildSolid(g, sdf, top, bottom, (a, b, z) => {
@@ -281,6 +289,7 @@ export function generateInsole(surface: PlantarSurface, params: InsoleParams): I
     minThickness: minT,
     maxThickness: maxT,
     footLength: surface.footLength,
-    kind: orth ? 'orthosis' : 'insole',
+    kind: params.type,
+    baseZ,
   };
 }

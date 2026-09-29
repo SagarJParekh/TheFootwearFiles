@@ -23,7 +23,8 @@ import { fillHoles, type FillOptions } from '../core/mesh/fill/fillHoles';
 import { findBoundaryLoops, suggestExcludedLoops } from '../core/mesh/holes';
 import { manifoldTrim } from '../core/mesh/manifoldCut';
 import { computeVertexNormals } from '../core/mesh/normals';
-import type { MeshData, MeshStats, Plane, RigidTransform, Vec3 } from '../core/types';
+import { makeMesh, type MeshData, type MeshStats, type Plane, type RigidTransform, type Vec3 } from '../core/types';
+import { adjustArchPositions, archRegion } from '../core/foot/archAdjust';
 import { MESH_NOT_CACHED, type MeshRef } from './meshRef';
 import type { ImportInfo } from '../core/units';
 import { generateInsole, samplePlantarSurface, type InsoleResult, type PlantarSurface } from '../core/insole/generate';
@@ -187,6 +188,13 @@ const api = {
       }
     }
     return transferMesh({ ...r, fallbackReason }, r.mesh);
+  },
+
+  /** Raises (+) / lowers (−) the arch of the foot scan itself; returns the modified mesh. */
+  async adjustFootArch(ref: MeshRef, transform: RigidTransform, landmarks: FrameLandmarks, delta: number): Promise<MeshData> {
+    const mesh = resolve(ref);
+    const out = makeMesh(adjustArchPositions(mesh.positions, transform, archRegion(landmarks), delta), mesh.indices.slice());
+    return transferMesh(out, out);
   },
 
   /** Foot length from the scan footprint (for the shoe-size suggestion). */

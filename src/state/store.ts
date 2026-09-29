@@ -3,6 +3,7 @@ import type { ProjectDocument } from '../core/document';
 import type { MeshStats, Vec3 } from '../core/types';
 import type { LandmarkId } from '../core/landmarks/definitions';
 import type { HoleInfo, InsoleOutput } from '../workers/mesh.worker';
+import type { InsoleType } from '../core/insole/params';
 import { emptyHistory, pushHistory, redo, undo, type HistoryState } from './history';
 
 export type ViewPreset = 'top' | 'bottom' | 'medial' | 'lateral' | 'front' | 'back' | 'iso';
@@ -70,6 +71,8 @@ export interface AppState {
   insole: { key: string; output: InsoleOutput } | null;
   insoleBusy: boolean;
   insoleError: string | null;
+  /** Insole type chosen before "Create the insole". */
+  pendingInsoleType: InsoleType;
   /** Right sidebar tab. */
   rightTab: 'landmarks' | 'insole';
   /** Snapshot taken at the start of a continuous gesture (gizmo drag, landmark drag). */
@@ -109,6 +112,7 @@ export const useStore = create<AppState>(() => ({
   insoleBusy: false,
   insoleError: null,
   rightTab: 'landmarks',
+  pendingInsoleType: 'full',
   gestureStart: null,
 }));
 

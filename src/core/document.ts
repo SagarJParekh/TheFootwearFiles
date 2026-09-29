@@ -34,6 +34,8 @@ export interface ProjectDocument {
   landmarks: LandmarkMap;
   /** True when the model is aligned to the heel/M1/M5 base plane and its transform is locked. */
   basePlaneLocked?: boolean;
+  /** Cumulative arch adjustment applied to the foot scan (mm, + raises the arch). */
+  footArchAdjust?: number;
   /** Insole / orthosis design parameters (null until "Create the insole"). */
   insole?: InsoleParams | null;
 }

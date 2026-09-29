@@ -2,7 +2,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import type { LandmarkMap, ProjectDocument, ScanInfo } from '../document';
 import { LANDMARK_BY_ID, type LandmarkId } from '../landmarks/definitions';
 import { makeMesh, type RigidTransform } from '../types';
-import { defaultInsoleParams, type InsoleParams } from '../insole/params';
+import { normalizeInsoleParams, type InsoleParams } from '../insole/params';
 
 /**
  * Project file (.tffproj): a zip containing
@@ -23,6 +23,7 @@ interface ProjectJson {
   landmarks: LandmarkMap;
   insole?: InsoleParams | null;
   basePlaneLocked?: boolean;
+  footArchAdjust?: number;
   mesh: { vertexCount: number; triangleCount: number; positions: string; indices: string };
 }
 
@@ -56,6 +57,7 @@ export function serializeProject(doc: ProjectDocument, savedAt = new Date().toIS
     landmarks: doc.landmarks,
     insole: doc.insole ?? null,
     basePlaneLocked: !!doc.basePlaneLocked,
+    footArchAdjust: doc.footArchAdjust ?? 0,
     mesh: {
       vertexCount: doc.mesh.positions.length / 3,
       triangleCount: doc.mesh.indices.length / 3,
@@ -107,6 +109,7 @@ export function deserializeProject(data: Uint8Array): ProjectDocument {
     transform: json.transform,
     landmarks,
     basePlaneLocked: !!json.basePlaneLocked,
-    insole: json.insole ? { ...defaultInsoleParams(), ...json.insole, orthosis: { ...defaultInsoleParams().orthosis, ...json.insole.orthosis } } : null,
+    insole: json.insole ? normalizeInsoleParams(json.insole) : null,
+    footArchAdjust: typeof json.footArchAdjust === 'number' ? json.footArchAdjust : 0,
   };
 }

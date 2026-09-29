@@ -19,7 +19,7 @@ export function InsoleView() {
   }, [insole]);
   useEffect(() => () => geometry?.dispose(), [geometry]);
   if (!enabled || !geometry) return null;
-  const orth = insole!.output.kind === 'orthosis';
+  const orth = insole!.output.kind === 'threeQuarter';
   return (
     <mesh geometry={geometry} raycast={() => null} renderOrder={1}>
       <meshStandardMaterial color={orth ? '#b9bec6' : '#e9ebee'} roughness={0.55} metalness={0.05} side={THREE.DoubleSide} />

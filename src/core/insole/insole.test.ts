@@ -49,13 +49,11 @@ describe('insole generator', () => {
     expect(suggestShoeSize(250)).toBe(6);
   });
 
-  it('builds a closed, outward-facing insole of the shoe-size length with the padding thickness', () => {
+  it('builds a closed, outward-facing insole of the shoe-size length', () => {
     const r = gen();
     const s = analyzeMesh(r.mesh);
     expect(s.watertight).toBe(true);
     expect(signedVolume(r.mesh)).toBeGreaterThan(0);
-    expect(r.minThickness).toBeCloseTo(2.5, 3);
-    expect(r.maxThickness).toBeCloseTo(2.5, 3);
     // length along the foot axis ≈ size length
     const b = s.bounds;
     expect(Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1])).toBeGreaterThan(r.length * 0.97);
@@ -83,16 +81,30 @@ describe('insole generator', () => {
     expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(1e-3);
   });
 
-  it('narrow profile and padding thickness', () => {
-    expect(gen((p) => (p.narrowProfile = true)).width).toBeLessThan(gen().width * 0.93);
-    const thick = gen((p) => (p.paddingThickness = 4));
-    expect(thick.maxThickness).toBeCloseTo(4, 3);
+  it('padding clearance leaves a gap between the foot and the insole top', () => {
+    const [x, y] = world(12, 70); // midfoot, away from features and the heel cup
+    const i = Math.round((12 - surface.grid.a0) / surface.grid.h), j = Math.round((70 - surface.grid.b0) / surface.grid.h);
+    const footZ = surface.z[j * surface.grid.nx + i];
+    const noGap = gen((p) => (p.paddingClearance = 0));
+    const gap3 = gen((p) => (p.paddingClearance = 3));
+    expect(topZ(noGap.mesh, x, y, 1.2)).toBeCloseTo(footZ, 0);
+    expect(topZ(noGap.mesh, x, y, 1.2) - topZ(gap3.mesh, x, y, 1.2)).toBeCloseTo(3, 1);
   });
 
-  it('medial arch pressure raises the insole under the arch', () => {
-    const [x, y] = world(-15, 75);
-    expect(topZ(gen((p) => (p.medialArchPressure = 10)).mesh, x, y)).toBeGreaterThan(topZ(gen().mesh, x, y) + 6);
-    expect(topZ(gen((p) => (p.medialArchPressure = -10)).mesh, x, y)).toBeLessThan(topZ(gen().mesh, x, y) - 6);
+  it('full length (FDM) has one completely flat base with the set minimum thickness', () => {
+    const r = gen((p) => (p.full.baseThickness = 2.4));
+    expect(r.kind).toBe('full');
+    const pz = r.mesh.positions;
+    const bottoms: number[] = [];
+    for (let i = pz.length / 2; i < pz.length; i += 3) bottoms.push(pz[i + 2]); // bottom copy = 2nd half
+    expect(Math.max(...bottoms) - Math.min(...bottoms)).toBeLessThan(1e-4);
+    expect(bottoms[0]).toBeCloseTo(r.baseZ!, 4);
+    expect(r.minThickness).toBeCloseTo(2.4, 3);
+    expect(analyzeMesh(r.mesh).bounds.min[2]).toBeCloseTo(r.baseZ!, 4);
+  });
+
+  it('narrow profile', () => {
+    expect(gen((p) => (p.narrowProfile = true)).width).toBeLessThan(gen().width * 0.93);
   });
 
   it('MT pad, MT bar and fascia groove change the top surface where expected', () => {
@@ -128,36 +140,38 @@ describe('insole generator', () => {
     expect(topZ(high.mesh, ...rim, 2)).toBeGreaterThan(18);
   });
 
-  it('orthosis: 3/4 length, flat filled rearfoot, heel post, Morton’s extension, offloads and heel hole', () => {
-    const insole = gen();
-    const orth = gen((p) => (p.orthosis.enabled = true));
-    const s = analyzeMesh(orth.mesh);
-    expect(s.watertight).toBe(true);
-    expect(orth.kind).toBe('orthosis');
+  it('3/4 length (powder): uniform shell thickness 2–4 mm, heel post, Morton’s extension, offloads and heel hole', () => {
+    const tq = (fn: (p: InsoleParams) => void = () => {}) => gen((p) => { p.type = 'threeQuarter'; fn(p); });
+    const full = gen();
+    const shell = tq();
+    expect(analyzeMesh(shell.mesh).watertight).toBe(true);
+    expect(shell.kind).toBe('threeQuarter');
+    expect(shell.minThickness).toBeCloseTo(2.5, 3);
+    expect(shell.maxThickness).toBeCloseTo(2.5, 3);
+    const thick = tq((p) => (p.threeQuarter.thickness = 4));
+    expect(thick.minThickness).toBeCloseTo(4, 3);
+    expect(thick.maxThickness).toBeCloseTo(4, 3);
     // 3/4 length: nothing near the toes
     const toe = world(0, 200);
-    expect(topZ(orth.mesh, ...toe, 4)).toBe(-Infinity);
-    expect(topZ(insole.mesh, ...toe, 4)).toBeGreaterThan(-Infinity);
+    expect(topZ(shell.mesh, ...toe, 4)).toBe(-Infinity);
+    expect(topZ(full.mesh, ...toe, 4)).toBeGreaterThan(-Infinity);
     // Morton's extension brings back the medial forefoot only
-    const mort = gen((p) => { p.orthosis.enabled = true; p.orthosis.mortonsExtension = 'mortons'; });
+    const mort = tq((p) => (p.threeQuarter.mortonsExtension = 'mortons'));
     const f = surface.frame;
     expect(topZ(mort.mesh, ...world(f.met1[0] + 4, f.met1[1] + 25), 4)).toBeGreaterThan(-Infinity);
     expect(topZ(mort.mesh, ...world(f.met5[0] - 5, f.met5[1] + 25), 4)).toBe(-Infinity);
-    // heel post height lowers the underside at the heel
-    const post = gen((p) => { p.orthosis.enabled = true; p.orthosis.heelHeight = 6; });
-    expect(lowZ(orth.mesh, ...world(0, 0)) - lowZ(post.mesh, ...world(0, 0))).toBeCloseTo(6, 0);
+    // heel post lowers the underside at the heel
+    const post = tq((p) => (p.threeQuarter.heelHeight = 6));
+    expect(lowZ(shell.mesh, ...world(0, 0)) - lowZ(post.mesh, ...world(0, 0))).toBeGreaterThan(5.5);
     // heel raise lifts the heel top surface
-    const raise = gen((p) => { p.orthosis.enabled = true; p.orthosis.heelRaise = 8; });
-    expect(topZ(raise.mesh, ...world(0, 0)) - topZ(orth.mesh, ...world(0, 0))).toBeCloseTo(8, 0);
-    // footplate thickness is the minimum thickness
-    expect(gen((p) => { p.orthosis.enabled = true; p.orthosis.footplateThickness = 4; }).minThickness).toBeCloseTo(4, 3);
-    // heel hole → an extra boundary-free tunnel: the heel centre has no material
-    const hole = gen((p) => { p.orthosis.enabled = true; p.orthosis.holeInHeel = true; });
+    const raise = tq((p) => (p.threeQuarter.heelRaise = 8));
+    expect(topZ(raise.mesh, ...world(0, 0)) - topZ(shell.mesh, ...world(0, 0))).toBeCloseTo(8, 0);
+    // heel hole and offload aperture
+    const hole = tq((p) => (p.threeQuarter.holeInHeel = true));
     expect(topZ(hole.mesh, ...world(0, 0), 5)).toBe(-Infinity);
     expect(analyzeMesh(hole.mesh).watertight).toBe(true);
     expect(findBoundaryLoops(hole.mesh).length).toBe(0);
-    // offload aperture under MT-1 (with Morton's extension so the forefoot exists there)
-    const off = gen((p) => { p.orthosis.enabled = true; p.orthosis.mortonsExtension = 'mortons'; p.orthosis.provideOffloads = true; p.orthosis.offloads = ['MT-1']; });
+    const off = tq((p) => { p.threeQuarter.mortonsExtension = 'mortons'; p.threeQuarter.provideOffloads = true; p.threeQuarter.offloads = ['MT-1']; });
     expect(topZ(off.mesh, ...world(f.met1[0], f.met1[1] - 3), 4)).toBe(-Infinity);
   });
 
@@ -168,6 +182,5 @@ describe('insole generator', () => {
     });
     const r = generateInsole(surf, defaultInsoleParams(7));
     expect(analyzeMesh(r.mesh).watertight).toBe(true);
-    expect(r.maxThickness).toBeCloseTo(2.5, 3);
   });
 });

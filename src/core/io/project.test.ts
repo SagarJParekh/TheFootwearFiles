@@ -3,7 +3,7 @@ import { strToU8, zipSync } from 'fflate';
 import { newDocument } from '../document';
 import { sphereWithHoles } from '../fixtures/primitives';
 import { eulerDegToQuat } from '../math/transform';
-import { defaultInsoleParams } from '../insole/params';
+import { defaultInsoleParams, normalizeInsoleParams } from '../insole/params';
 import { deserializeProject, serializeProject } from './project';
 
 describe('project files', () => {
@@ -28,10 +28,26 @@ describe('project files', () => {
   it('round-trips the insole design', () => {
     const insole = defaultInsoleParams(9);
     insole.mtPad = { enabled: true, height: 5.5 };
-    insole.orthosis = { ...insole.orthosis, enabled: true, mortonsExtension: 'mortons', offloads: ['MT-2', 'MT-3'] };
-    const doc = { ...newDocument(sphereWithHoles(), 'x.stl'), insole };
-    expect(deserializeProject(serializeProject(doc)).insole).toEqual(insole);
+    insole.type = 'threeQuarter';
+    insole.threeQuarter = { ...insole.threeQuarter, thickness: 3.2, mortonsExtension: 'mortons', offloads: ['MT-2', 'MT-3'] };
+    const doc = { ...newDocument(sphereWithHoles(), 'x.stl'), insole, footArchAdjust: 4.5 };
+    const back = deserializeProject(serializeProject(doc));
+    expect(back.insole).toEqual(insole);
+    expect(back.footArchAdjust).toBe(4.5);
     expect(deserializeProject(serializeProject(newDocument(sphereWithHoles(), 'x.stl'))).insole).toBeNull();
+  });
+
+  it('upgrades designs saved with the older soft-insole / orthosis model', () => {
+    const legacy = { shoeSizeUK: 7, paddingThickness: 3, medialArchPressure: 5, heelCupHeight: 18,
+      orthosis: { enabled: true, footplateThickness: 5, holeInHeel: true, heelRaise: 2 } };
+    const p = normalizeInsoleParams(legacy);
+    expect(p.type).toBe('threeQuarter');
+    expect(p.paddingClearance).toBe(3);
+    expect(p.threeQuarter.thickness).toBe(4); // clamped into 2–4
+    expect(p.threeQuarter.holeInHeel).toBe(true);
+    expect(p.heelCupHeight).toBe(18);
+    expect('orthosis' in p).toBe(false);
+    expect(normalizeInsoleParams({ shoeSizeUK: 9 }).type).toBe('full');
   });
 
   it('rejects non-project data', () => {

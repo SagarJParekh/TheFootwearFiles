@@ -99,7 +99,9 @@ As soon as the **heel centre**, **1st metatarsal head** and **5th metatarsal hea
 
 ## Insole designer (right sidebar → "Insole designer")
 
-This replicates the reference orthotic-design workflow step by step. Every control and range matches the reference tool, and every change can be undone.
+This follows the reference orthotic-design workflow step by step, built around how the insole will be **manufactured**. Every change can be undone.
+
+The padding is added externally after printing. So **padding clearance** is a gap left between the foot and the printed insole, not material: the insole top is the foot surface minus the clearance, plus any features.
 
 **1 · Align & set up**
 
@@ -108,48 +110,55 @@ This replicates the reference orthotic-design workflow step by step. Every contr
 | Align the scan (base plane) | Set automatically from the heel centre, M1 and M5 (see [Base plane](#base-plane-heel-centre--1st-mt-head--5th-mt-head)); the model is then locked |
 | **Toes aligned in the arrow direction** | Shows the green toe arrow (+Y); the base plane always points the toes along it |
 | Which side is model | Left or right (set in Scan setup) |
-| Landmarks | Heel centre, 1st and 5th metatarsal heads are required; the arch peak is optional (it positions the arch-pressure bump) |
-| **Shoe Size** | UK2–UK13 in half sizes. Insole length = (size + 25) barleycorns − 5 mm, so UK8 = 274 mm. A size is suggested from the scan's footprint length |
-| **Create the insole** | Generates the insole |
+| Landmarks | Heel centre, 1st and 5th metatarsal heads are required; the arch peak is optional (it centres the foot arch adjustment) |
+| **Foot arch adjustment** | −15…+15 mm. Raises (+) or lowers (−) the medial arch **of the foot scan itself** (not the insole), so the insole then follows the corrected foot. Needs the base plane. The value is cumulative, undoable and saved with the project. The sole is never pushed below the floor. |
 
-**2 · Insole settings (soft, full length)**
+**2 · Insole type** (chosen before designing, and can be changed later)
+
+| Type | Printing | Result |
+| --- | --- | --- |
+| **Full length** | FDM | Follows the foot up to the metatarsal heads. **Completely flat from the M1–M5 line forward**, with a 12 mm blend behind the line. Finished with a **flat base** for printing. |
+| **3/4 length** | Powder bed | Ends 6 mm before the metatarsal line. The part is a **shell of uniform thickness, 2–4 mm (default 2.5 mm)**. |
+
+**Shoe Size** is UK2–UK13 in half sizes. Insole length = (size + 25) barleycorns − 5 mm, so UK8 = 274 mm. A size is suggested from the scan's footprint length. **Create the insole** generates it.
+
+**3 · Design** (both types)
 
 | Control | Range | Effect |
 | --- | --- | --- |
+| Padding clearance | 0–4 mm (default 2.5) | Gap between the foot and the insole top, left for the padding |
 | Narrow insole profile | on/off | Outline 10 % narrower |
-| Padding thickness | 1.5–4 mm | Shell thickness; the insole follows the plantar surface up to the metatarsal heads. **From the M1–M5 line forward it is completely flat**: no toe contours are traced, with a 12 mm blend just behind the line |
-| Medial Arch pressure | −25…25 mm | Pushes the insole up into (+) or away from (−) the medial arch |
 | Add Wedge | type Heel / Forefoot / Full; side Medial / Lateral; angle 0–7° | Posting: added material tilted about the opposite border |
 | Add MT Pad | height 0–7 mm | Dome just proximal to the 2nd–4th metatarsal heads |
 | Plantar fascia groove | depth 0–4 mm | Channel from the heel to the 1st/2nd ray |
 | Heel cup height | 6–30 mm | Height of the rim around the heel and rearfoot |
 | MT Bar | thickness 2–5 mm | Transverse ridge just proximal to the metatarsal line |
 
-**Add thickness → rigid orthosis (3/4 length)**
+**4 · Finish**
 
-The orthosis ends 6 mm before the metatarsal line. The underside is filled flat through the rearfoot and midfoot.
+*Full length (FDM):* once all the features are set, the underside is one completely flat plane. **Base thickness** (1–6 mm, default 2 mm) is the material under the lowest point of the top surface.
+
+*3/4 length (powder):*
 
 | Control | Range | Effect |
 | --- | --- | --- |
+| Thickness | 2–4 mm (default 2.5) | Uniform shell thickness |
 | Heel raise | 0–20 mm | Heel lift, tapering to zero at the metatarsals |
 | Heel height | 0–10 mm | Heel post below the shell |
-| Morton's extension | none / Morton's / Reverse Morton's | Extends the plate under the 1st ray, or under rays 2–5 |
 | Heel base width | Narrow / Normal / Wide | Width of the heel post |
+| Morton's extension | none / Morton's / Reverse Morton's | Extends the shell under the 1st ray, or under rays 2–5 |
 | choose offloads | MT-1…MT-5 | Metatarsal heads to offload; **Provide offloads** cuts an aperture under each one |
-| Footplate thickness | 2–5 mm | Minimum shell thickness |
 | Hole in heel | on/off | 20 mm through-hole at the heel centre |
 
 **Also:**
 - **Foot: Visible / Transparent / Hidden** controls how the scan is drawn. It is in the designer panel and also floats at the top left of the viewport once an insole exists. The foot switches to Transparent automatically when the insole is created.
-- **Finalise and download** exports a watertight STL in world coordinates.
+- **Finalise and download** exports a watertight STL in world coordinates, named `<scan>-full-UK8.stl` or `<scan>-threeQuarter-UK8.stl`.
 - The design is saved with the project.
 
 **How it works (`src/core/insole/`):**
 1. The aligned scan's sole is rasterised into a 1 mm height map in the heel → metatarsal frame. Steep faces (the sides of the foot) are skipped, gaps are filled and the result is smoothed. This step is cached, because only it depends on the scan.
 2. The outline is fitted to the shoe size and the M1/M5 landmarks.
-3. Each modification is either:
-   - a *shape* change, which the soft shell follows (arch pressure, heel cup, heel raise), or
-   - *added material*, which only thickens the insole (pads, bar, wedge, groove).
+3. The top surface is the foot (flattened distal to M1–M5, with the heel cup and heel raise) minus the padding clearance, plus *added material* (pads, bar, wedge; the groove removes material). The bottom is either one flat plane (full length) or the shape offset down by the shell thickness (3/4 length).
    - Cut-outs are signed-distance operations: 3/4 length, Morton's extensions, offload apertures and the heel hole.
 4. Marching squares over the outline builds a closed solid, so the edges are smooth rather than stair-stepped.
 
@@ -270,9 +279,9 @@ src/
   - landmark JSON/CSV serialisation and import fallback
   - measurements, including arch height to a tilted plane
   - project round-trip and corrupt-file rejection
-  - insole designer: shoe-size length, padding thickness, narrow profile, arch pressure, MT pad/bar, fascia groove, wedges, heel cup, orthosis (3/4 length, heel post, heel raise, Morton's extension, offloads, heel hole), open plantar scans, landmark alignment and the base-plane lock (set, follow moved points, release on delete)
+  - insole designer: shoe-size length, padding clearance, full-length flat base, narrow profile, MT pad/bar, fascia groove, wedges, heel cup, 3/4 shell (uniform thickness, heel post, heel raise, Morton's extension, offloads, heel hole), foot arch adjustment, legacy project upgrade, open plantar scans, landmark alignment and the base-plane lock (set, follow moved points, release on delete)
   - file formats: OBJ (quads, negative indices), PLY (ASCII, binary, point-cloud rejection), OFF, 3DM, STEP/IGES (including metre and inch files), unit guessing, Y-up conversion and re-interpretation
-- `npm run e2e`: browser smoke test of the main workflow, the insole designer (create → modifications → orthosis → undo → download), the base plane (auto-set on a tilted scan, rotation refused, re-align, release, undo), plus an import test of every format fixture (3MF, AMF, glTF/GLB, DAE, VRML, 3DM, STEP, IGES, …).
+- `npm run e2e`: browser smoke test of the main workflow, the insole designer (full length flat base → clearance → features → foot arch → undo → 3/4 shell → download), the base plane (auto-set on a tilted scan, rotation refused, re-align, release, undo), plus an import test of every format fixture (3MF, AMF, glTF/GLB, DAE, VRML, 3DM, STEP, IGES, …).
 
 ## Known limitations
 
@@ -299,6 +308,6 @@ src/
 - **ASCII STL:** parsed in memory with a regular expression, which is fine for typical files but not for multi-GB ASCII scans.
 - **Insole designer:**
   - The insole shape comes from simple rules, not a clinical template. The outline is a spline fitted to the shoe size and M1/M5, and the feature positions are fixed offsets from the landmarks (MT pad 12 mm behind the metatarsal line, fascia groove heel → 1st/2nd ray, and so on).
-  - Arch pressure is a smooth bump centred on the arch landmark, or estimated if that isn't placed.
-  - The orthosis walls are vertical; there is no flare or bevel yet.
+  - The foot arch adjustment is a smooth bump on the medial arch of the scan, centred on the arch landmark (or estimated if that isn't placed).
+  - The insole walls are vertical; there is no flare or bevel yet.
 - **Undo memory:** history is capped at 600 MB of mesh data. On very large meshes only the last few mesh edits can be undone.
