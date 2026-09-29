@@ -16,6 +16,20 @@ import type { MeshData, MeshStats, Plane, RigidTransform, Vec3 } from '../core/t
 import { cutMeshByPlane, type CutResult } from '../core/mesh/cut';
 import { manifoldTrim } from '../core/mesh/manifoldCut';
 import Module, { type ManifoldToplevel } from 'manifold-3d';
+import { findBoundaryLoops, suggestExcludedLoops } from '../core/mesh/holes';
+import { fillHoles, type FillOptions } from '../core/mesh/fill/fillHoles';
+
+/** Hole description sent to the UI (loop polyline instead of vertex indices). */
+export interface HoleInfo {
+  id: number;
+  edgeCount: number;
+  perimeter: number;
+  diameter: number;
+  centroid: Vec3;
+  /** Closed polyline, xyz per loop vertex (mesh-local). */
+  points: Float32Array;
+  suggestedExclude: boolean;
+}
 import manifoldWasmUrl from 'manifold-3d/manifold.wasm?url';
 
 let manifoldPromise: Promise<ManifoldToplevel> | null = null;
@@ -74,6 +88,22 @@ const api = {
     }
     const r = cutMeshByPlane(mesh, plane, { keepPositive, cap });
     return transferMesh({ ...r, fallbackReason }, r.mesh);
+  },
+
+  async findHoles(mesh: MeshData): Promise<HoleInfo[]> {
+    const loops = findBoundaryLoops(mesh);
+    const excluded = suggestExcludedLoops(loops);
+    const holes = loops.map((l) => {
+      const points = new Float32Array(l.vertices.length * 3);
+      l.vertices.forEach((v, i) => points.set(mesh.positions.subarray(3 * v, 3 * v + 3), 3 * i));
+      return { id: l.id, edgeCount: l.edgeCount, perimeter: l.perimeter, diameter: l.diameter, centroid: l.centroid, points, suggestedExclude: excluded.has(l.id) };
+    });
+    return Comlink.transfer(holes, holes.map((h) => h.points.buffer as ArrayBuffer));
+  },
+
+  async fillHoles(mesh: MeshData, loopIds: number[], options: FillOptions) {
+    const r = fillHoles(mesh, loopIds, options);
+    return transferMesh(r, r.mesh);
   },
 
   async exportStl(mesh: MeshData, transform: RigidTransform | null): Promise<ArrayBuffer> {

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { ProjectDocument } from '../core/document';
 import type { MeshStats, Vec3 } from '../core/types';
 import type { LandmarkId } from '../core/landmarks/definitions';
+import type { HoleInfo } from '../workers/mesh.worker';
 import { emptyHistory, pushHistory, redo, undo, type HistoryState } from './history';
 
 export type ViewPreset = 'top' | 'bottom' | 'medial' | 'lateral' | 'front' | 'back' | 'iso';
@@ -55,6 +56,12 @@ export interface AppState {
   activeLandmark: LandmarkId | null;
   /** Landmarks found to be off the current surface (e.g. after a cut), with distance in mm. */
   offSurface: Partial<Record<LandmarkId, number>>;
+  /** Boundary loops of the current mesh (null until detected). */
+  holes: { meshId: string; loops: HoleInfo[] } | null;
+  /** Loop ids excluded from "fill all" (per mesh version). */
+  holeExcluded: Set<number>;
+  hoveredHole: number | null;
+  showHoles: boolean;
   /** Snapshot taken at the start of a continuous gesture (gizmo drag, landmark drag). */
   gestureStart: ProjectDocument | null;
 }
@@ -82,6 +89,10 @@ export const useStore = create<AppState>(() => ({
   scanDialogOpen: false,
   activeLandmark: null,
   offSurface: {},
+  holes: null,
+  holeExcluded: new Set(),
+  hoveredHole: null,
+  showHoles: true,
   gestureStart: null,
 }));
 

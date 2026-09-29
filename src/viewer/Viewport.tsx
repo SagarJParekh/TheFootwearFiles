@@ -12,6 +12,7 @@ import { LandmarkMarkers } from './LandmarkMarkers';
 import { firstVisibleHit, worldToLocal } from './picking';
 import { placeLandmark } from '../state/landmarkActions';
 import { ClipPlane } from './ClipPlane';
+import { HoleOverlay } from './HoleOverlay';
 
 /** Click on the surface → place the active landmark (ignored if the click was an orbit drag). */
 function onSurfaceClick(e: ThreeEvent<MouseEvent>) {
@@ -78,6 +79,7 @@ function Scene() {
             onClick={onSurfaceClick}
           />
           <LandmarkMarkers radius={markerRadius} />
+          <HoleOverlay />
         </ModelGroup>
       )}
 
