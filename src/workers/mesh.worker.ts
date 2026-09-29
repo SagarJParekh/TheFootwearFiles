@@ -12,7 +12,20 @@ import { analyzeMesh } from '../core/mesh/analyze';
 import { computeVertexNormals } from '../core/mesh/normals';
 import { transformPositions } from '../core/math/transform';
 import { distancesToSurface } from '../core/mesh/closestPoint';
-import type { MeshData, MeshStats, RigidTransform, Vec3 } from '../core/types';
+import type { MeshData, MeshStats, Plane, RigidTransform, Vec3 } from '../core/types';
+import { cutMeshByPlane, type CutResult } from '../core/mesh/cut';
+import { manifoldTrim } from '../core/mesh/manifoldCut';
+import Module, { type ManifoldToplevel } from 'manifold-3d';
+import manifoldWasmUrl from 'manifold-3d/manifold.wasm?url';
+
+let manifoldPromise: Promise<ManifoldToplevel> | null = null;
+function manifold(): Promise<ManifoldToplevel> {
+  manifoldPromise ??= Module({ locateFile: () => manifoldWasmUrl }).then((m) => {
+    m.setup();
+    return m;
+  });
+  return manifoldPromise;
+}
 
 function transferMesh<T extends object>(result: T, ...meshes: MeshData[]): T {
   return Comlink.transfer(
@@ -43,6 +56,24 @@ const api = {
 
   async surfaceDistances(mesh: MeshData, points: Vec3[]): Promise<number[]> {
     return distancesToSurface(mesh, points);
+  },
+
+  /**
+   * Hybrid plane cut: manifold-3d for watertight meshes when capping (robust, always closed),
+   * otherwise the own split + planar cap which also handles open scans.
+   */
+  async cut(mesh: MeshData, plane: Plane, keepPositive: boolean, cap: boolean, watertight: boolean): Promise<CutResult & { fallbackReason?: string }> {
+    let fallbackReason: string | undefined;
+    if (cap && watertight) {
+      try {
+        const out = manifoldTrim(await manifold(), mesh, plane, keepPositive);
+        return transferMesh({ mesh: out, cappedLoops: -1, openCutLoops: 0, method: 'manifold' as const }, out);
+      } catch (e) {
+        fallbackReason = e instanceof Error ? e.message : String(e);
+      }
+    }
+    const r = cutMeshByPlane(mesh, plane, { keepPositive, cap });
+    return transferMesh({ ...r, fallbackReason }, r.mesh);
   },
 
   async exportStl(mesh: MeshData, transform: RigidTransform | null): Promise<ArrayBuffer> {

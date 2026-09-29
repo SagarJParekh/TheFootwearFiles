@@ -7,6 +7,7 @@ import { TransformPanel } from './ui/panels/TransformPanel';
 import { ScanSetupDialog } from './ui/ScanSetupDialog';
 import { LandmarkPanel } from './ui/panels/LandmarkPanel';
 import { MeasurementsPanel } from './ui/panels/MeasurementsPanel';
+import { ClipCutPanel } from './ui/panels/ClipCutPanel';
 import { StatusBar } from './ui/StatusBar';
 import { useKeyboardShortcuts } from './ui/useKeyboardShortcuts';
 import { openAnyFile } from './state/fileOpen';
@@ -54,6 +55,7 @@ export default function App() {
               <InfoPanel />
               <DisplayPanel />
               <TransformPanel />
+              <ClipCutPanel />
             </>
           ) : (
             <div className="empty-hint">

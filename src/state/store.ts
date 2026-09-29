@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { ProjectDocument } from '../core/document';
-import type { MeshStats } from '../core/types';
+import type { MeshStats, Vec3 } from '../core/types';
 import type { LandmarkId } from '../core/landmarks/definitions';
 import { emptyHistory, pushHistory, redo, undo, type HistoryState } from './history';
 
@@ -15,6 +15,15 @@ export interface ViewState {
   showAxes: boolean;
   showLabels: boolean;
   gizmo: GizmoMode;
+}
+
+/** Non-destructive clipping plane in world space; the visible side is where dot(n, p) >= constant. */
+export interface ClipState {
+  enabled: boolean;
+  normal: Vec3;
+  constant: number;
+  showPlane: boolean;
+  gizmo: 'none' | 'translate' | 'rotate';
 }
 
 export interface CameraRequest {
@@ -36,6 +45,7 @@ export interface AppState {
   history: HistoryState;
   view: ViewState;
   camera: CameraRequest;
+  clip: ClipState;
   tool: Tool;
   busy: string | null;
   error: string | null;
@@ -64,6 +74,7 @@ export const useStore = create<AppState>(() => ({
   history: emptyHistory(),
   view: initialView,
   camera: { kind: 'fit', nonce: 0 },
+  clip: { enabled: false, normal: [0, 0, -1], constant: 0, showPlane: true, gizmo: 'none' },
   tool: 'none',
   busy: null,
   error: null,
@@ -134,11 +145,19 @@ export function redoEdit(): void {
 // ---------------------------------------------------------------------------
 
 export function setView(patch: Partial<ViewState>): void {
-  set({ view: { ...get().view, ...patch } });
+  const clip = patch.gizmo && patch.gizmo !== 'none' ? { ...get().clip, gizmo: 'none' as const } : get().clip;
+  set({ view: { ...get().view, ...patch }, clip });
 }
 
 export function requestCamera(kind: 'fit' | 'preset', preset?: ViewPreset): void {
   set({ camera: { kind, preset, nonce: get().camera.nonce + 1 } });
+}
+
+export function setClip(patch: Partial<ClipState>): void {
+  const clip = { ...get().clip, ...patch };
+  // Only one transform gizmo at a time.
+  const view = patch.gizmo && patch.gizmo !== 'none' ? { ...get().view, gizmo: 'none' as const } : get().view;
+  set({ clip, view });
 }
 
 export function setTool(tool: Tool): void {

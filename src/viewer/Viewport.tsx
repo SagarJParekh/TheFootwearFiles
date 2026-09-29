@@ -1,6 +1,6 @@
 import { Canvas, type ThreeEvent } from '@react-three/fiber';
 import { GizmoHelper, GizmoViewport, Grid, OrbitControls } from '@react-three/drei';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import * as THREE from 'three';
 import { useStore } from '../state/store';
 import { CameraController } from './CameraController';
@@ -11,6 +11,7 @@ import { useMeshGeometry } from './useMeshGeometry';
 import { LandmarkMarkers } from './LandmarkMarkers';
 import { firstVisibleHit, worldToLocal } from './picking';
 import { placeLandmark } from '../state/landmarkActions';
+import { ClipPlane } from './ClipPlane';
 
 /** Click on the surface → place the active landmark (ignored if the click was an orbit drag). */
 function onSurfaceClick(e: ThreeEvent<MouseEvent>) {
@@ -26,8 +27,6 @@ function onSurfaceClick(e: ThreeEvent<MouseEvent>) {
 // App convention: Z is up (+Y anterior, +X patient's right).
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
-const NO_PLANES: THREE.Plane[] = [];
-
 function Scene() {
   const mesh = useStore((s) => s.doc?.mesh);
   const derived = useStore((s) => s.derived);
@@ -40,6 +39,12 @@ function Scene() {
   const bounds = derived?.stats.bounds;
   const diag = bounds ? Math.hypot(...bounds.max.map((v, i) => v - bounds.min[i])) : 100;
   const markerRadius = Math.max(1.2, diag * 0.007);
+  const clip = useStore((s) => s.clip);
+  const clippingPlanes = useMemo(() => {
+    const planes = clip.enabled ? [new THREE.Plane(new THREE.Vector3(...clip.normal).normalize(), -clip.constant)] : [];
+    sceneRefs.clipPlanes = planes;
+    return planes;
+  }, [clip.enabled, clip.normal, clip.constant]);
 
   return (
     <>
@@ -68,7 +73,7 @@ function Scene() {
             geometry={geometry}
             flatShading={view.flatShading}
             wireframe={view.wireframe}
-            clippingPlanes={NO_PLANES}
+            clippingPlanes={clippingPlanes}
             meshRef={setMeshRef}
             onClick={onSurfaceClick}
           />
@@ -76,6 +81,7 @@ function Scene() {
         </ModelGroup>
       )}
 
+      {geometry && <ClipPlane size={diag * 0.9} />}
       <OrbitControls makeDefault enableDamping={false} />
       <CameraController />
       <GizmoHelper alignment="bottom-right" margin={[70, 70]}>
