@@ -26,6 +26,8 @@ import { fillMissing, rasterizeLowestSurface, type Grid } from '../insole/height
 import { buildSolid } from '../insole/solidMesh';
 import type { PlantarSurface } from '../insole/generate';
 import { signedVolume } from '../mesh/normals';
+import { analyzeMesh } from '../mesh/analyze';
+import { fillHoles } from '../mesh/fill/fillHoles';
 import { rasterizeHighestSurface, signedDistance, sphericalDilate, sphericalErode } from './fields';
 import { estimateDorsum } from './dorsum';
 import { appendLattice, concatMeshes, conformalLattice, emptyLattice, latticeToMesh, sampleGrid, type Lattice } from './lattice';
@@ -71,10 +73,13 @@ export function prepareFootData(surface: PlantarSurface, positions: Float32Array
   for (let k = 0; k < top.length; k++) {
     if (Number.isNaN(top[k])) continue;
     mask[k] = 1;
-    heights.push(top[k] - surface.z[k]);
+    // (only where the sole is sampled too: a NaN would break the sort and the median)
+    if (surface.covered[k] && Number.isFinite(surface.z[k])) heights.push(top[k] - surface.z[k]);
   }
   heights.sort((x, y) => x - y);
-  const hasDorsum = heights.length > 0 && heights[Math.floor(heights.length / 2)] > 25;
+  // A full scan rises well above the sole over most of the foot (the top and the sole only meet
+  // round the edge and at the toes); a plantar / foam-box scan stays within ~20 mm of it.
+  const hasDorsum = heights.length > 0 && heights[Math.floor(heights.length * 0.75)] > 35 && heights[Math.floor(heights.length / 2)] > 15;
   const silhouetteSdf = signedDistance(mask, g);
   const low = rasterizeHighestSurface(positions, indices, surface.frame, g, floor + 20);
   const lowMask = new Uint8Array(low.length);
@@ -83,9 +88,18 @@ export function prepareFootData(surface: PlantarSurface, positions: Float32Array
 
   let probePositions = positions, probeIndices = indices;
   if (hasDorsum) {
-    // Closed / full scan: orient it outward for the clearance checks.
-    if (signedVolume({ positions, indices }) < 0) {
-      probeIndices = indices.slice();
+    // Full scan. Inside/outside needs a closed surface, but real scans are often open (cut at
+    // the ankle, scanner holes): next to an open edge the nearest-point test can put a point
+    // 'inside' the foot when it is outside. Close the holes with flat caps for the checks.
+    const scan = makeMesh(positions, indices);
+    if (!analyzeMesh(scan).watertight) {
+      const filled = fillHoles(scan, 'all');
+      probePositions = filled.mesh.positions;
+      probeIndices = filled.mesh.indices;
+    }
+    // … and orient it outward.
+    if (signedVolume({ positions: probePositions, indices: probeIndices }) < 0) {
+      probeIndices = probeIndices.slice();
       for (let t = 0; t < probeIndices.length; t += 3) [probeIndices[t + 1], probeIndices[t + 2]] = [probeIndices[t + 2], probeIndices[t + 1]];
     }
   } else {
@@ -551,6 +565,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   appendLattice(lattice, midsole); // first: node ids unchanged
 
   // Lattice side wall option: a triangulated cage just inside the outline (anchored in the plate).
+  const cageStart = lattice.nodes.length / 3;
   if (p.sideWall === 'lattice') appendLattice(lattice, sideCage(g, outlineSdf, plateTop, rimTop, p.cellSize, r, toWorld));
 
   if (foot.dorsumEstimated) {
@@ -716,12 +731,13 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     for (const e of up.collarEdges) collarEdges.add(edgeBase + e);
   }
 
-  // Safety pass for the upper: any node still closer than the clearance is pushed out.
-  if (upperStart >= 0) {
+  // Safety pass for the side cage and the upper: any node still closer than the clearance is
+  // pushed out (e.g. where the heel of the scan rises steeply over the rim).
+  {
     const Nn = lattice.nodes;
     const rad = new Float32Array(Nn.length / 3);
     lattice.edges.forEach((v, e) => (rad[v] = Math.max(rad[v], lattice.radii[e >> 1])));
-    for (let v = upperStart; v < Nn.length / 3; v++) {
+    for (let v = cageStart; v < Nn.length / 3; v++) {
       for (let it = 0; it < 4 && rad[v]; it++) {
         const q = scanProbe(Nn[3 * v], Nn[3 * v + 1], Nn[3 * v + 2]);
         if (q.gap - rad[v] >= c - 0.03) break;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { SCAN_TYPE_LABEL, SIDE_LABEL, landmarksForScanType, type ScanType, type Side } from '../core/landmarks/definitions';
 import { UNIT_LABEL, UNIT_TO_MM, type LengthUnit, type UpAxis } from '../core/units';
-import { reinterpretImport } from '../state/actions';
+import { autoOrientToes, reinterpretImport } from '../state/actions';
 import { emptyHistory } from '../state/history';
 import { commit, useStore } from '../state/store';
 
@@ -34,11 +34,20 @@ export function ScanSetupDialog() {
   const confirm = () => {
     const firstTime = !useStore.getState().doc?.scan;
     reinterpretImport(units, upAxis);
-    const doc = useStore.getState().doc;
-    if (doc && firstTime) {
-      // First-time setup right after loading is part of the load, not an undoable edit.
-      useStore.setState({ doc: { ...doc, scan: { type, side } }, scanDialogOpen: false, history: emptyHistory() });
-      return;
+    if (firstTime) {
+      // Point the toes along +Y (the app's convention) when the scan clearly points elsewhere.
+      const turn = autoOrientToes();
+      const doc = useStore.getState().doc;
+      if (doc) {
+        // First-time setup right after loading is part of the load, not an undoable edit.
+        useStore.setState({
+          doc: { ...doc, scan: { type, side } },
+          scanDialogOpen: false,
+          history: emptyHistory(),
+          ...(turn ? { notice: `Turned the scan ${turn > 0 ? '+' : ''}${turn}° about Z so the toes point forward (+Y). Use Quick rotate if that is wrong.` } : {}),
+        });
+        return;
+      }
     }
     commit('Scan setup', (doc) => {
       if (doc.scan?.type === type && doc.scan.side === side) return doc;
@@ -98,6 +107,7 @@ export function ScanSetupDialog() {
             {locked && <p className="hint warn" style={{ marginTop: 0 }}>Locked by the base plane – release it to change units or axis.</p>}
             <p className="hint" style={{ marginTop: 0 }}>
               Units {SOURCE_NOTE[units === importInfo.units ? importInfo.unitsSource : 'user']}.
+              {importInfo.note && units === importInfo.units && <b className="warn"> {importInfo.note}</b>}
               {bounds && (
                 <>
                   {' '}

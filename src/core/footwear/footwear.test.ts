@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { closedFoot, plantarScan } from '../fixtures/footShapes';
+import { closedFoot, lowerLimbScan, plantarScan } from '../fixtures/footShapes';
 import { samplePlantarSurface } from '../insole/generate';
 import { worldToFrame } from '../insole/frame';
 import { analyzeMesh } from '../mesh/analyze';
@@ -291,6 +291,20 @@ describe('footwear generator', () => {
       const r = generateFootwear(ff, p);
       const bAE = ff.surface.frame.archEnd![1];
       expect(Math.abs(legsAt(r) - bAE)).toBeLessThan(6);
+    }
+  });
+
+  it('open full scans (cut at the leg, scanner holes): the real top of the foot is used and nothing gets too close', () => {
+    const m = lowerLimbScan();
+    const f = prepareFootData(samplePlantarSurface(m.positions, m.indices, landmarks()), m.positions, m.indices);
+    expect(f.hasDorsum).toBe(true);
+    // the clearance checks run against the scan with its holes closed
+    expect(analyzeMesh(makeMesh(f.probePositions, f.probeIndices)).boundaryEdgeCount).toBe(0);
+    for (const kind of ['chappal', 'shoe'] as const) {
+      const r = generateFootwear(f, defaultFootwearParams(6, kind));
+      expect(r.warnings.join(' ')).not.toMatch(/estimated foot shape/);
+      expect(r.rules.every((x) => x.ok)).toBe(true);
+      expect(minGap(f, r)).toBeGreaterThanOrEqual(1 - 0.1);
     }
   });
 

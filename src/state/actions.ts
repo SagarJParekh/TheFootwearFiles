@@ -4,6 +4,7 @@
  */
 import { newDocument } from '../core/document';
 import { computeBounds } from '../core/mesh/analyze';
+import { detectToeTurn } from '../core/mesh/footOrient';
 import { eulerDegToQuat, quatToEulerDeg, rotateVector, transformPositions } from '../core/math/transform';
 import { IDENTITY_TRANSFORM, makeMesh, type MeshData, type RigidTransform, type Vec3 } from '../core/types';
 import { reinterpretation, UNIT_LABEL, UNIT_TO_MM, type LengthUnit, type UpAxis } from '../core/units';
@@ -256,6 +257,23 @@ export function rotateStep(axis: 0 | 1 | 2, degrees: number): void {
     dq[3] * q[3] - dq[0] * q[0] - dq[1] * q[1] - dq[2] * q[2],
   ];
   setTransform(rotateAboutCentre(doc.transform, nq, meshCentre()), `Rotate ${'XYZ'[axis]} ${degrees}°`);
+}
+
+/**
+ * Turns an untouched scan about Z so its toes point along +Y (see detectToeTurn). Does nothing
+ * when the model has already been moved / rotated, the base plane is locked, or the direction
+ * is unclear. Returns the turn applied (degrees) or 0.
+ */
+export function autoOrientToes(): number {
+  const doc = get().doc;
+  if (!doc || transformLocked()) return 0;
+  const [qx, qy, qz, qw] = doc.transform.quaternion;
+  if (Math.abs(qw) < 1 - 1e-9 || qx || qy || qz) return 0;
+  const r = detectToeTurn(doc.mesh.positions);
+  if (!r || r.turn === 0) return 0;
+  rotateStep(2, r.turn);
+  requestCamera('fit');
+  return r.turn;
 }
 
 export { withBusy };

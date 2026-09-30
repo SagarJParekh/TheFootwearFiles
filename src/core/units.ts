@@ -20,7 +20,12 @@ export interface ImportInfo {
   /** Up axis of the file; Y-up files are rotated so the app's Z is up. */
   upAxis: UpAxis;
   upAxisSource: ImportSource;
+  /** Why the units differ from what the file states (e.g. a glTF in millimetres instead of metres). */
+  note?: string;
 }
+
+/** Largest plausible size (mm) of a foot / lower-limb scan; files that would be bigger were misread. */
+export const MAX_PLAUSIBLE_MM = 2500;
 
 /**
  * Guesses the units of a unit-less file from its size, assuming it is a foot / lower-limb scan

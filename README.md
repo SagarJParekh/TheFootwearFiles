@@ -38,6 +38,7 @@ To try the app without a real scan, use the **Samples** menu:
 - Model loading from the file picker or by drag-and-drop anywhere in the window. See [Supported file formats](#supported-file-formats) for the list.
   - Parsing, vertex welding, analysis and normals run in a Web Worker for most formats; the file buffer is transferred to the worker, not copied.
   - Everything is converted to millimetres, Z up. Units and up axis are read from the file where the format defines them, otherwise guessed from the model size, and can be corrected in **Scan setup**.
+  - If the units a file states would make the model impossibly large (over 2.5 m), the size-based guess is used instead and Scan setup says why. This happens with glTF/GLB scans exported in millimetres, although glTF means metres.
 - Camera:
   - Orbit, pan and zoom; fit to view (`F`).
   - Preset views: top, plantar, medial, lateral, front, back, iso. Medial and lateral follow the Left/Right choice.
@@ -68,6 +69,7 @@ To try the app without a real scan, use the **Samples** menu:
 - **Scan setup** (asked on load, and changeable later):
   - Scan type: *Plantar surface* or *Lower limb*.
   - Side: *Left* or *Right*.
+  - On **OK** after loading, a foot lying on the floor with its toes pointing another way (−Y or ±X) is turned about Z so the toes point forward (+Y). The toes are found from the ankle, which is over the heel, or, on low plantar scans, from the wider forefoot. The status bar says so, and it can be changed with Quick rotate. Scans standing on end are left alone: rotate them by hand, then set the base plane.
 - **Landmarks:** heel centre, 1st and 5th metatarsal heads, medial arch start, medial arch peak, medial arch end. Lower-limb scans also get the medial and lateral malleoli.
 - **Placing and editing:**
   - Select a landmark in the side panel, then click the mesh. The point snaps to the surface using a BVH raycast, and selection moves on to the next missing landmark.
@@ -224,6 +226,8 @@ If the scan's toes aren't separated, the toe post overlaps them; this is reporte
 - It carries a **double-skin lattice**: a regular triangulated lattice (nodes spaced evenly along each section and zipped between sections), a second copy of it 0.6 × the cell size further out, and crossing diagonals between the two (an X in section).
 - It is fully enclosed: toes, dorsum, sides and heel counter. The only opening is at the ankle, with a clean solid collar rim. The top line has a heel tab, dips under the ankle bones and rises in a rounded curve to the throat (45 % of the length by default).
 
+**Full scans that are open** (cut above the ankle, scanner holes): the straps and upper use the scanned top of the foot. For the clearance checks the holes are closed with smooth patches first, because next to an open edge the inside/outside test is unreliable.
+
 **Scans without the top of the foot** (plantar / foam-box scans, or scans that stop low on the sides): the straps and the upper are fitted around an **estimated dorsum**, and a warning says so.
 - The estimate is modelled from the scanned footprint: a typical adult dorsal height profile along the foot, and a rounded section across it. Where the scan reaches higher, the scan wins.
 - The clearance checks then use a closed shell of the scanned sole plus the estimated dorsum.
@@ -374,8 +378,8 @@ src/
   - measurements, including arch height to a tilted plane
   - project round-trip and corrupt-file rejection
   - insole designer: shoe-size length, padding clearance, full-length flat base, narrow profile, MT pad/bar, fascia groove, wedges, heel cup, 3/4 shell (uniform thickness, heel post, heel raise, Morton's extension, offloads, heel hole), foot arch adjustment limited to the AS–AE span, no ridge at the metatarsals, MT bar types and coverage (complete on both insole types), legacy project upgrade, open plantar scans, landmark alignment and the base-plane lock (set, follow moved points, release on delete)
-  - footwear designer: standard-shape sole, straps and upper (outline contains the foot, thong wings land inside the sole, enclosed shoe with ankle opening), smooth footbed skin, consistent winding of every solid part (for manifold-3d), estimated dorsum on plantar scans, thong wings down to the sole at the arch end, spherical dilation/erosion and signed distance fields, the conformal lattice, the design rules (parameters clamped to 1.2–1.8 mm struts and 1–2 mm clearance, and measured on the result at both ends of the ranges), slide / thong / split-toe chappals (watertight solid parts, thong window in front of the wings, toe-post warning, sole slot), the shoe upper (fits the dorsum, collar opening over the ankle, double skin), side wall and tread options, sole-only output for scans without the top of the foot, and project round-trip
-  - file formats: OBJ (quads, negative indices), PLY (ASCII, binary, point-cloud rejection), OFF, 3DM, STEP/IGES (including metre and inch files), unit guessing, Y-up conversion and re-interpretation
+  - footwear designer: standard-shape sole, straps and upper (outline contains the foot, thong wings land inside the sole, enclosed shoe with ankle opening), smooth footbed skin, consistent winding of every solid part (for manifold-3d), estimated dorsum on plantar scans, thong wings down to the sole at the arch end, spherical dilation/erosion and signed distance fields, the conformal lattice, the design rules (parameters clamped to 1.2–1.8 mm struts and 1–2 mm clearance, and measured on the result at both ends of the ranges), slide / thong / split-toe chappals (watertight solid parts, thong window in front of the wings, toe-post warning, sole slot), the shoe upper (fits the dorsum, collar opening over the ankle, double skin), side wall and tread options, sole-only output for scans without the top of the foot, open full scans (cut at the leg, scanner holes: the real top of the foot is used and the clearance checks run against the scan with its holes closed), and project round-trip
+  - file formats: OBJ (quads, negative indices), PLY (ASCII, binary, point-cloud rejection), OFF, 3DM, STEP/IGES (including metre and inch files), unit guessing (and the fallback when a file's stated units give an impossible size), toe direction detection, Y-up conversion and re-interpretation
 - `npm run e2e`: browser smoke test of the main workflow, the insole designer (full length flat base → clearance → features → MT bar type → foot arch between AS/AE → undo → 3/4 shell → download), the base plane (auto-set on a tilted scan, rotation refused, re-align, release, undo), the footwear designer (chappal → rule checks → sliders held to the rule ranges → thong / split-toe → shoe → undo → download, including the merged watertight STL; then a plantar scan with estimated dorsum: slide, thong and enclosed shoe), plus an import test of every format fixture (3MF, AMF, glTF/GLB, DAE, VRML, 3DM, STEP, IGES, …).
 
 ## Known limitations
