@@ -20,14 +20,14 @@ const check = (cond, msg) => { console.log(`${cond ? '✔' : '✘'} ${msg}`); if
 const state = () => page.evaluate(() => {
   const s = window.__app.useStore.getState();
   const o = s.footwear?.output;
-  return { kind: o?.kind, struts: o?.strutCount, rules: o?.rules, warnings: o?.warnings, clearance: o?.clearance, strut: o?.strut, err: s.footwearError, p: s.doc?.footwear, insoleShown: !!s.doc?.insole && s.designCategory === 'insole' };
+  return { kind: o?.kind, struts: o?.strutCount, rules: o?.rules, warnings: o?.warnings, clearance: o?.clearance, upperGap: o?.upperGap, strut: o?.strut, err: s.footwearError, p: s.doc?.footwear, insoleShown: !!s.doc?.insole && s.designCategory === 'insole' };
 });
 const settle = () => page.waitForFunction(() => {
   const s = window.__app.useStore.getState();
   if (s.busy || s.footwearBusy || !s.doc?.footwear) return !s.busy && !s.footwearBusy;
   return !!s.footwear && s.footwear.key.endsWith(JSON.stringify(s.doc.footwear) + ']');
 }, null, { timeout: 90000 });
-const rulesOk = (s) => s.rules?.length === 2 && s.rules.every((r) => r.ok);
+const rulesOk = (s) => s.rules?.length === 3 && s.rules.every((r) => r.ok);
 
 try {
   await page.goto('http://localhost:5199/');
@@ -76,7 +76,7 @@ try {
   await page.check('[data-testid=fw-kind-shoe]');
   await settle();
   s = await state();
-  check(s.kind === 'shoe' && s.p.sideWall === 'lattice' && rulesOk(s), `shoe: lattice upper + lattice side wall, rules met (clearance ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm)`);
+  check(s.kind === 'shoe' && s.p.sideWall === 'solid' && s.upperGap?.min >= 0.97 && rulesOk(s), `shoe: standard-shape lattice upper on a solid sole, rules met (footbed ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm, upper ${s.upperGap?.min.toFixed(1)}–${s.upperGap?.max.toFixed(1)} mm from the foot)`);
   await page.keyboard.press('Control+z');
   await settle();
   s = await state();
@@ -128,7 +128,7 @@ try {
   await page.check('[data-testid=fw-kind-shoe]');
   await settle();
   s = await state();
-  check(s.kind === 'shoe' && s.struts > 12000 && rulesOk(s), `plantar scan: enclosed shoe upper (${s.struts} struts, clearance ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm)`);
+  check(s.kind === 'shoe' && s.struts > 8000 && rulesOk(s), `plantar scan: enclosed shoe upper (${s.struts} struts, clearance ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm)`);
   check(errors.length === 0, `no page errors ${errors.join('; ')}`);
 } catch (e) {
   console.error(e);

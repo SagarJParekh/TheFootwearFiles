@@ -85,14 +85,21 @@ export function FootwearPanel({ ready }: { ready: boolean }) {
                   <b>{r.value}</b>
                 </div>
               ))}
+              {result.upperGap && (
+                <div className="hint" data-testid="footwear-upper-gap">
+                  {result.kind === 'shoe' ? 'Upper' : 'Straps'}: standard shape around the foot, {result.upperGap.min.toFixed(1)}–{result.upperGap.max.toFixed(1)} mm from it.
+                </div>
+              )}
               {result.warnings.map((w) => (
                 <div key={w} className="hint warn">{w}</div>
               ))}
             </div>
           )}
-          <Slider label={`Clearance to the foot (rule ${FOOTWEAR_RULES.clearance.min}–${FOOTWEAR_RULES.clearance.max})`} range={R.clearance} value={p.clearance} set={(q, v) => ({ ...q, clearance: v })} testId="fw-clearance" />
+          <div className="hint" style={{ marginTop: 0 }}>Only the footbed follows the foot; the sole, straps and upper are standard shapes fitted around it.</div>
+          <Slider label={`Footbed clearance to the foot (rule ${FOOTWEAR_RULES.clearance.min}–${FOOTWEAR_RULES.clearance.max})`} range={R.clearance} value={p.clearance} set={(q, v) => ({ ...q, clearance: v })} testId="fw-clearance" />
           <Slider label={`Lattice strut diameter (rule ${FOOTWEAR_RULES.strutDiameter.min}–${FOOTWEAR_RULES.strutDiameter.max})`} range={R.strutDiameter} value={p.strutDiameter} set={(q, v) => ({ ...q, strutDiameter: v })} testId="fw-strut" />
           <Slider label="Lattice cell size" range={R.cellSize} value={p.cellSize} set={(q, v) => ({ ...q, cellSize: v })} testId="fw-cell" />
+          <Field label="Smooth footbed skin (solid top)" right={<Switch checked={p.footbedSkin} onChange={(v) => updateFootwear('Footbed skin', (q) => ({ ...q, footbedSkin: v }))} testId="fw-skin" />} />
           <div className="field-group-label">Sole</div>
           <Slider label="Sole thickness (thinnest point)" range={R.soleThickness} value={p.soleThickness} set={(q, v) => ({ ...q, soleThickness: v })} testId="fw-sole" />
           <Slider label="Outsole thickness (solid)" range={R.outsoleThickness} value={p.outsoleThickness} set={(q, v) => ({ ...q, outsoleThickness: v })} />

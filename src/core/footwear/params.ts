@@ -1,7 +1,8 @@
 /**
  * Parametric footwear designed from the same scan, landmarks and plantar sampling as the
- * insole: a 3D-printed lattice sole (conformal lattice under a footbed that follows the foot)
- * with a solid outsole and rim, plus either chappal straps or a lattice shoe upper.
+ * insole. The outer shape is a standard product shape (smooth outline, level rim, rounded
+ * edges, smooth straps / upper that enclose the foot); only the footbed – the insole part – is
+ * contoured to the foot. The sole is a 3D-printed lattice under that footbed.
  *
  * Design rules (enforced by the parameter ranges and checked on the generated result):
  *  - lattice strut diameter 1.2 – 1.8 mm
@@ -35,6 +36,8 @@ export interface FootwearParams {
   wallThickness: number;
   /** Sole side: solid wall (chappal look) or an open lattice cage along the outline (lattice shoe look). */
   sideWall: SideWall;
+  /** Smooth solid skin on the contoured footbed (over the lattice) instead of an open lattice top. */
+  footbedSkin: boolean;
   /** Extra length in front of the toes (mm). */
   toeAllowance: number;
   tread: TreadPattern;
@@ -59,10 +62,10 @@ export const FOOTWEAR_RANGES = {
   outsoleThickness: { min: 1.5, max: 4, step: 0.1, unit: 'mm' },
   toeSpring: { min: 0, max: 15, step: 0.5, unit: 'mm' },
   rimHeight: { min: 0, max: 25, step: 0.5, unit: 'mm' },
-  wallThickness: { min: 1.5, max: 4, step: 0.1, unit: 'mm' },
+  wallThickness: { min: 1.5, max: 8, step: 0.1, unit: 'mm' },
   toeAllowance: { min: 0, max: 20, step: 0.5, unit: 'mm' },
   strapWidth: { min: 30, max: 100, step: 1, unit: 'mm' },
-  strapThickness: { min: 2, max: 5, step: 0.1, unit: 'mm' },
+  strapThickness: { min: 2, max: 8, step: 0.1, unit: 'mm' },
   strapPosition: { min: 0.45, max: 0.8, step: 0.01 },
   thongArmWidth: { min: 12, max: 35, step: 0.5, unit: 'mm' },
   collarHeight: { min: 25, max: 90, step: 1, unit: 'mm' },
@@ -78,16 +81,17 @@ export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chap
     clearance: 1.5,
     strutDiameter: 1.5,
     cellSize: 6,
-    soleThickness: kind === 'shoe' ? 14 : 16,
+    soleThickness: kind === 'shoe' ? 10 : 12,
     outsoleThickness: 2.5,
     toeSpring: kind === 'shoe' ? 8 : 5,
-    rimHeight: kind === 'shoe' ? 12 : 10,
-    wallThickness: 2.5,
-    sideWall: kind === 'shoe' ? 'lattice' : 'solid',
+    rimHeight: kind === 'shoe' ? 8 : 6,
+    wallThickness: kind === 'shoe' ? 4 : 5,
+    sideWall: 'solid',
+    footbedSkin: false,
     toeAllowance: kind === 'shoe' ? 3 : 8,
     tread: 'hexagon',
-    strap: { width: 65, thickness: 3, position: 0.6 },
-    thongArmWidth: 20,
+    strap: { width: 60, thickness: 5, position: 0.62 },
+    thongArmWidth: 28,
     shoe: { collarHeight: 45, throat: 0.45, collarDiameter: 3 },
   };
 }
@@ -105,6 +109,7 @@ export function normalizeFootwearParams(raw: unknown): FootwearParams {
     chappalStyle: ['slide', 'thong', 'splitToe'].includes(r.chappalStyle) ? r.chappalStyle : d.chappalStyle,
     tread: ['none', 'hexagon', 'diamond', 'waves'].includes(r.tread) ? r.tread : d.tread,
     sideWall: r.sideWall === 'solid' || r.sideWall === 'lattice' ? r.sideWall : d.sideWall,
+    footbedSkin: typeof r.footbedSkin === 'boolean' ? r.footbedSkin : d.footbedSkin,
     clearance: clampTo(r.clearance, R.clearance, d.clearance),
     strutDiameter: clampTo(r.strutDiameter, R.strutDiameter, d.strutDiameter),
     cellSize: clampTo(r.cellSize, R.cellSize, d.cellSize),

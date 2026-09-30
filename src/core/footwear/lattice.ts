@@ -9,8 +9,6 @@
  *    midsole under the footbed). Each layer is shifted to the centroids of the layer below and
  *    connected to its 3 nearest nodes there (tetrahedral cells); the top layer also has its
  *    in-plane triangle edges, which form the visible footbed pattern.
- *  - `surfaceLattice`: a triangulated net lying on an offset of the foot surface (the shoe
- *    upper), made by vertex clustering of the scan mesh with cells of the lattice size.
  */
 import { makeMesh, type MeshData } from '../types';
 import type { Grid } from '../insole/heightfield';
@@ -117,87 +115,6 @@ export function conformalLattice(opts: {
       const ca = a - s / 2, cb = b - (s * Math.sqrt(3)) / 6; // lower-left vertex of the triangle below
       for (const [da, db] of [[0, 0], [s, 0], [s / 2, rowH]]) addEdge(id, layerMaps[k].get(index(k, ca + da, cb + db)));
     }
-  }
-  return out;
-}
-
-/**
- * Triangulated lattice on an offset of the foot surface (shoe upper). `keep(vertex)` selects
- * the scan vertices that belong to the upper; each is offset along its outward normal by
- * `offset`. Vertices are clustered in cubes of `cell`; a cluster's node is the offset vertex
- * nearest to the cluster mean (so nodes stay exactly on the offset surface), and scan
- * triangles whose corners fall in three different clusters become lattice triangles.
- * Returns the lattice plus the boundary nodes (edges used by only one lattice triangle).
- */
-export function surfaceLattice(opts: {
-  positions: Float32Array;
-  normals: Float32Array;
-  indices: Uint32Array;
-  keep: (x: number, y: number, z: number) => boolean;
-  offset: number;
-  cell: number;
-  radius: number;
-}): Lattice & { boundaryEdges: number[] } {
-  const { positions: P, normals: N, indices, keep, offset, cell, radius } = opts;
-  const nv = P.length / 3;
-  const off = new Float32Array(P.length);
-  const cluster = new Int32Array(nv).fill(-1);
-  const keyToCluster = new Map<string, number>();
-  const sums: number[] = [];
-  for (let v = 0; v < nv; v++) {
-    const x = P[3 * v], y = P[3 * v + 1], z = P[3 * v + 2];
-    if (!keep(x, y, z)) continue;
-    const ox = x + N[3 * v] * offset, oy = y + N[3 * v + 1] * offset, oz = z + N[3 * v + 2] * offset;
-    off[3 * v] = ox;
-    off[3 * v + 1] = oy;
-    off[3 * v + 2] = oz;
-    const key = `${Math.floor(ox / cell)},${Math.floor(oy / cell)},${Math.floor(oz / cell)}`;
-    let c = keyToCluster.get(key);
-    if (c === undefined) {
-      c = sums.length / 4;
-      keyToCluster.set(key, c);
-      sums.push(0, 0, 0, 0);
-    }
-    cluster[v] = c;
-    sums[4 * c] += ox;
-    sums[4 * c + 1] += oy;
-    sums[4 * c + 2] += oz;
-    sums[4 * c + 3]++;
-  }
-  const nc = sums.length / 4;
-  const best = new Int32Array(nc).fill(-1);
-  const bestD = new Float64Array(nc).fill(Infinity);
-  for (let v = 0; v < nv; v++) {
-    const c = cluster[v];
-    if (c < 0) continue;
-    const w = sums[4 * c + 3];
-    const d = (off[3 * v] - sums[4 * c] / w) ** 2 + (off[3 * v + 1] - sums[4 * c + 1] / w) ** 2 + (off[3 * v + 2] - sums[4 * c + 2] / w) ** 2;
-    if (d < bestD[c]) {
-      bestD[c] = d;
-      best[c] = v;
-    }
-  }
-  const out = { ...emptyLattice(), boundaryEdges: [] as number[] };
-  for (let c = 0; c < nc; c++) out.nodes.push(off[3 * best[c]], off[3 * best[c] + 1], off[3 * best[c] + 2]);
-  const triSeen = new Set<string>();
-  const edgeUse = new Map<string, number>();
-  for (let t = 0; t < indices.length; t += 3) {
-    const a = cluster[indices[t]], b = cluster[indices[t + 1]], c = cluster[indices[t + 2]];
-    if (a < 0 || b < 0 || c < 0 || a === b || b === c || a === c) continue;
-    const s = [a, b, c].sort((x, y) => x - y);
-    const tk = s.join(',');
-    if (triSeen.has(tk)) continue;
-    triSeen.add(tk);
-    for (const [p, q] of [[s[0], s[1]], [s[1], s[2]], [s[0], s[2]]]) {
-      const ek = `${p},${q}`;
-      edgeUse.set(ek, (edgeUse.get(ek) ?? 0) + 1);
-    }
-  }
-  for (const [ek, count] of edgeUse) {
-    const [p, q] = ek.split(',').map(Number);
-    out.edges.push(p, q);
-    out.radii.push(radius);
-    if (count === 1) out.boundaryEdges.push(out.edges.length / 2 - 1);
   }
   return out;
 }
