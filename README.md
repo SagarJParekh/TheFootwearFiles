@@ -20,6 +20,7 @@ npm run dev          # http://localhost:5173
 | `npm test` | Unit tests (Vitest) for the mesh / IO / landmark logic |
 | `npm run e2e` | Browser tests in headless Chromium via Playwright. `e2e/smoke.mjs` runs load → landmark → fill → cut → undo/redo → export. `e2e/formats.mjs` imports the same foot in every format and checks size, orientation and units |
 | `npm run fixtures` | Regenerates the sample STLs in `public/samples/` and the per-format fixtures in `fixtures/formats/` (`-- --large` also writes a 1.3M-triangle sphere) |
+| `npx tsx scripts/footwear-preview.ts <dir> [slide thong splitToe shoe]` | Writes the generated footwear for the synthetic foot as STL files (for checking designs outside the app) |
 
 To try the app without a real scan, use the **Samples** menu:
 
@@ -186,7 +187,11 @@ Footwear is the third category, after the full length and 3/4 insoles. It uses t
 - a level rim with rounded edges
 - smooth straps and uppers
 
-The shapes follow reference slides and thongs, not the foot's contours.
+The shapes follow the reference designs (the team's slides, thongs and lattice shoes, measured from their STL files), not the foot's contours:
+- sole: a thin shell tray around a lattice core, with a foot-shaped outline and a toe bumper
+- slide: a wide vamp growing out of the side walls
+- thong: wide wings with a window in front of them, a ridge and a toe post
+- shoe: a slip-on with a double-skin lattice upper
 
 **Design rules** (enforced and checked):
 
@@ -199,25 +204,25 @@ The shapes follow reference slides and thongs, not the foot's contours.
 The panel also shows how far the straps or upper are from the foot. As standard shapes, they are close at the tightest point and further elsewhere.
 
 **Sole (both kinds):**
-- **Outline:** a sole spline with sandal proportions (rounded heel, gentle waist, ball widths from M1/M5, rounded toe leaning towards the big toe). It is grown until it contains the lower part of the foot plus the clearance and the rim wall, and the whole foot seen from above plus the clearance. Nothing overhangs the sole.
+- **Outline:** a sole spline with last-bottom proportions (narrow rounded heel, waist, ball widths from M1/M5, rounded toe leaning towards the big toe). Each of its control points grows on its own until the outline contains the lower part of the foot plus the clearance and the rim wall, and the whole foot seen from above plus the clearance. The outline keeps a foot shape (it doesn't just scale up), and nothing overhangs the sole.
 - **Outsole:** a solid plate on a flat base, with a rounded bottom edge, toe spring and an optional tread (hexagon / diamond / waves).
-- **Rim:** a solid wall with a **level, smooth top line** (not following the foot), higher at the heel, with a rounded bead on top. It can be switched to an open lattice cage.
+- **Rim:** a thin solid wall (2.5 mm by default) with a **level, smooth top line** (not following the foot), highest round the heel, with a rounded bead on top. On chappals it turns up round the toes (toe bumper). It can be switched to an open lattice cage (the default for shoes).
 - **Footbed:** the top of a conformal tetrahedral lattice, contoured to the foot at the clearance. Optionally it gets a **smooth solid skin** (1.2 mm) over the lattice, like the reference slides.
 
 **Chappal** (styles from the reference photos):
 
 | Style | Shape |
 | --- | --- |
-| **Slide** | One smooth band from the medial to the lateral side. It is an arch standing on the rim, with the same height along the band, and pillow-rounded front and back edges. It bulges only where the foot is wider than the sole. You can set its width, position and thickness. |
-| **Thong** | Two smooth rounded arms. Each is a quarter arch in its own vertical plane, from a rounded knot above the toe post, over the foot, down onto the rim at the level of the arch end (AE landmark, or just behind the 1st metatarsal head). The arms lie flat across themselves and turn to run along the sole edge where they enter the rim. The toe post is a tapered rounded column between the big toe and the other toes. |
+| **Slide** | One wide vamp that grows out of the side walls, 3 mm thick with pillow-rounded edges. Its front edge runs straight across over the toe joints. Its back edge sweeps from the top of the instep down and back to the rim, so from the side the strap is a long diagonal. Its cross-sections are arches standing on the rim, each just high enough to clear the foot, smoothed along the foot. They bulge only where the foot is wider than the sole. You can set its length on top of the foot, position and thickness. |
+| **Thong** | Two wide wings grow out of the side walls along the arch and meet over the instep. On the sole they end at the level of the arch end (AE landmark, or just behind the 1st metatarsal head), leaving a window above the sole in front of them. From where they meet, a rounded ridge runs forward and down onto the toe post, a tapered rounded column between the big toe and the other toes. You can set the wing width at the sole and the thickness. |
 | **Split-toe thong** | The same, with the sole split between the big toe and the others. |
 
 If the scan's toes aren't separated, the toe post overlaps them; this is reported as a warning.
 
-**Shoe:** the same sole, plus a **smooth last-like upper**.
+**Shoe:** the same sole (with a lattice side wall by default), plus a **smooth last-like upper**, a slip-on like the reference lattice shoes.
 - Its cross-sections stand on the rim and are fitted around the foot, then smoothed along it.
-- It carries a regular triangulated lattice, with nodes spaced evenly along each section and zipped between sections.
-- It is fully enclosed: toes, dorsum, sides and heel counter. The only opening is at the ankle (collar height, and the throat at 45 % of the length by default), with a clean solid collar rim.
+- It carries a **double-skin lattice**: a regular triangulated lattice (nodes spaced evenly along each section and zipped between sections), a second copy of it 0.6 × the cell size further out, and crossing diagonals between the two (an X in section).
+- It is fully enclosed: toes, dorsum, sides and heel counter. The only opening is at the ankle, with a clean solid collar rim. The top line has a heel tab, dips under the ankle bones and rises in a rounded curve to the throat (45 % of the length by default).
 
 **Scans without the top of the foot** (plantar / foam-box scans, or scans that stop low on the sides): the straps and the upper are fitted around an **estimated dorsum**, and a warning says so.
 - The estimate is modelled from the scanned footprint: a typical adult dorsal height profile along the foot, and a rounded section across it. Where the scan reaches higher, the scan wins.
@@ -231,9 +236,10 @@ If the scan's toes aren't separated, the toe post overlaps them; this is reporte
 | Lattice cell size | 4–10 mm | 6 |
 | Smooth footbed skin | on/off | off |
 | Sole thickness (thinnest point) / outsole | 8–35 / 1.5–4 mm | 12 (chappal), 10 (shoe) / 2.5 |
-| Rim height (heel) / rim wall | 0–25 / 1.5–8 mm | 6 / 5 (chappal), 8 / 4 (shoe) |
+| Rim height (heel) / rim wall | 0–25 / 1.5–8 mm | 10 (chappal), 8 (shoe) / 2.5 |
+| Sole side wall | solid / lattice | solid (chappal), lattice (shoe) |
 | Toe spring, toe allowance | 0–15, 0–20 mm | kind-specific |
-| Strap width / position / thickness (slide), arm width (thong) | 30–100 mm / 45–80 % / 2–8 mm, 12–35 mm | 60 / 62 % / 5, 28 |
+| Strap length on top / position / thickness (slide), wing width at the sole (thong) | 30–100 mm / 45–80 % / 2–8 mm, 25–80 mm | 70 / 66 % / 3, 55 |
 | Collar height / throat / collar rim (shoe) | 25–90 mm / 40–75 % / 2–4 mm | 45 / 45 % / 3 |
 
 **Download:**
@@ -248,7 +254,7 @@ If the scan's toes aren't separated, the toe post overlaps them; this is reporte
 2. `shape.ts` holds the standard shapes:
    - the sole outline and its growth
    - arch sections: a superellipse on the rim with an optional bulge, and the smallest height that encloses the foot, found with a polar containment test
-   - the lofted band, the rounded sweep for the arms and post, and the section lattice with its collar
+   - the arch sheet (vamp and wings: a sheet on the arch surface cut out between a back and a front edge, thickened outward), the rounded sweep for the ridge and post, and the section lattice (single or double skin) with its collar
 3. The top of the foot (highest-surface raster) is spherically dilated by the clearance. That gives the surface the straps and upper must stay outside of.
 4. The clearance checks use the nearest point on the foot. Where that point is on an edge or corner, inside/outside is decided from the averaged normals of all faces touching it (pseudo-normal).
 
@@ -368,7 +374,7 @@ src/
   - measurements, including arch height to a tilted plane
   - project round-trip and corrupt-file rejection
   - insole designer: shoe-size length, padding clearance, full-length flat base, narrow profile, MT pad/bar, fascia groove, wedges, heel cup, 3/4 shell (uniform thickness, heel post, heel raise, Morton's extension, offloads, heel hole), foot arch adjustment limited to the AS–AE span, no ridge at the metatarsals, MT bar types and coverage (complete on both insole types), legacy project upgrade, open plantar scans, landmark alignment and the base-plane lock (set, follow moved points, release on delete)
-  - footwear designer: standard-shape sole, straps and upper (outline contains the foot, one arch height along the slide strap, thong arms land inside the sole, enclosed shoe with ankle opening), smooth footbed skin, consistent winding of every solid part (for manifold-3d), estimated dorsum on plantar scans, thong arms at the arch-end level, spherical dilation/erosion and signed distance fields, the conformal lattice, the design rules (parameters clamped to 1.2–1.8 mm struts and 1–2 mm clearance, and measured on the result at both ends of the ranges), slide / thong / split-toe chappals (watertight solid parts, toe-post warning, sole slot), the shoe upper (fits the dorsum, collar opening over the ankle), side wall and tread options, sole-only output for scans without the top of the foot, and project round-trip
+  - footwear designer: standard-shape sole, straps and upper (outline contains the foot, thong wings land inside the sole, enclosed shoe with ankle opening), smooth footbed skin, consistent winding of every solid part (for manifold-3d), estimated dorsum on plantar scans, thong wings down to the sole at the arch end, spherical dilation/erosion and signed distance fields, the conformal lattice, the design rules (parameters clamped to 1.2–1.8 mm struts and 1–2 mm clearance, and measured on the result at both ends of the ranges), slide / thong / split-toe chappals (watertight solid parts, thong window in front of the wings, toe-post warning, sole slot), the shoe upper (fits the dorsum, collar opening over the ankle, double skin), side wall and tread options, sole-only output for scans without the top of the foot, and project round-trip
   - file formats: OBJ (quads, negative indices), PLY (ASCII, binary, point-cloud rejection), OFF, 3DM, STEP/IGES (including metre and inch files), unit guessing, Y-up conversion and re-interpretation
 - `npm run e2e`: browser smoke test of the main workflow, the insole designer (full length flat base → clearance → features → MT bar type → foot arch between AS/AE → undo → 3/4 shell → download), the base plane (auto-set on a tilted scan, rotation refused, re-align, release, undo), the footwear designer (chappal → rule checks → sliders held to the rule ranges → thong / split-toe → shoe → undo → download, including the merged watertight STL; then a plantar scan with estimated dorsum: slide, thong and enclosed shoe), plus an import test of every format fixture (3MF, AMF, glTF/GLB, DAE, VRML, 3DM, STEP, IGES, …).
 

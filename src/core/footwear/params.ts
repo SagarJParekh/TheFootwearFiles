@@ -41,9 +41,12 @@ export interface FootwearParams {
   /** Extra length in front of the toes (mm). */
   toeAllowance: number;
   tread: TreadPattern;
-  /** Chappal straps (solid). `position` = strap centre as a fraction of the length from the heel. */
+  /**
+   * Chappal straps (solid). Slide: `width` = length of the vamp on top of the foot, `position` =
+   * its centre as a fraction of the foot length from the heel (the sides sweep further back).
+   */
   strap: { width: number; thickness: number; position: number };
-  /** Thong / split-toe: width of the two strap arms (mm). */
+  /** Thong / split-toe: width of each strap wing where it grows out of the sole wall (mm). */
   thongArmWidth: number;
   /** Shoe upper: collar height above the footbed, throat position (fraction of length), collar rim diameter. */
   shoe: { collarHeight: number; throat: number; collarDiameter: number };
@@ -67,7 +70,7 @@ export const FOOTWEAR_RANGES = {
   strapWidth: { min: 30, max: 100, step: 1, unit: 'mm' },
   strapThickness: { min: 2, max: 8, step: 0.1, unit: 'mm' },
   strapPosition: { min: 0.45, max: 0.8, step: 0.01 },
-  thongArmWidth: { min: 12, max: 35, step: 0.5, unit: 'mm' },
+  thongArmWidth: { min: 25, max: 80, step: 1, unit: 'mm' },
   collarHeight: { min: 25, max: 90, step: 1, unit: 'mm' },
   throat: { min: 0.4, max: 0.75, step: 0.01 },
   collarDiameter: { min: 2, max: 4, step: 0.1, unit: 'mm' },
@@ -84,14 +87,14 @@ export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chap
     soleThickness: kind === 'shoe' ? 10 : 12,
     outsoleThickness: 2.5,
     toeSpring: kind === 'shoe' ? 8 : 5,
-    rimHeight: kind === 'shoe' ? 8 : 6,
-    wallThickness: kind === 'shoe' ? 4 : 5,
-    sideWall: 'solid',
+    rimHeight: kind === 'shoe' ? 8 : 10,
+    wallThickness: 2.5,
+    sideWall: kind === 'shoe' ? 'lattice' : 'solid',
     footbedSkin: false,
     toeAllowance: kind === 'shoe' ? 3 : 8,
     tread: 'hexagon',
-    strap: { width: 60, thickness: 5, position: 0.62 },
-    thongArmWidth: 28,
+    strap: { width: 70, thickness: 3, position: 0.66 },
+    thongArmWidth: 55,
     shoe: { collarHeight: 45, throat: 0.45, collarDiameter: 3 },
   };
 }
@@ -136,7 +139,7 @@ export function normalizeFootwearParams(raw: unknown): FootwearParams {
 export const FOOTWEAR_KIND_LABEL: Record<FootwearKind, string> = { shoe: 'Shoe', chappal: 'Chappal' };
 export const CHAPPAL_STYLE_LABEL: Record<ChappalStyle, string> = {
   slide: 'Slide (wide strap)',
-  thong: 'Thong (Y-strap, toe post)',
+  thong: 'Thong (wings, toe post)',
   splitToe: 'Split-toe thong',
 };
 export const SIDE_WALL_LABEL: Record<SideWall, string> = { solid: 'Solid wall', lattice: 'Lattice (open cage)' };

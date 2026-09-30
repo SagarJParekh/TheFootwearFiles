@@ -184,18 +184,27 @@ describe('footwear generator', () => {
     expect(zTop(gen((p) => (p.clearance = 1))) - zTop(gen((p) => (p.clearance = 2)))).toBeCloseTo(1, 1);
   });
 
-  it('thong and split-toe: two smooth arms and a toe post; split-toe slots the sole between the 1st and 2nd toes', () => {
+  it('thong and split-toe: wide wings, a ridge and a toe post; split-toe slots the sole between the 1st and 2nd toes', () => {
     const thong = gen((p) => (p.chappalStyle = 'thong'));
-    expect(thong.parts.solids).toHaveLength(6); // outsole, rim, 2 arms, post, knot
+    expect(thong.parts.solids).toHaveLength(5); // outsole, rim, wings, ridge, post
     for (const s of thong.parts.solids) expect(analyzeMesh(s).watertight && consistent(s)).toBe(true);
     expect(minGap(foot, thong, 4)).toBeGreaterThanOrEqual(1 - 0.03);
-    // the arms come down onto the sole, inside its outline
+    // the wings come down onto the sole, inside its outline
     const sole = analyzeMesh(thong.parts.solids[0]).bounds;
-    for (const i of [2, 3]) {
-      const arm = analyzeMesh(thong.parts.solids[i]).bounds;
-      expect(arm.min[0]).toBeGreaterThanOrEqual(sole.min[0] - 1);
-      expect(arm.max[0]).toBeLessThanOrEqual(sole.max[0] + 1);
+    const wings = analyzeMesh(thong.parts.solids[2]).bounds;
+    expect(wings.min[0]).toBeGreaterThanOrEqual(sole.min[0] - 1);
+    expect(wings.max[0]).toBeLessThanOrEqual(sole.max[0] + 1);
+    // …and leave a window over the sole in front of them: low down, they end well before the
+    // front of the wings on top
+    const f0 = foot.surface.frame, W = thong.parts.solids[2].positions;
+    let zLow = Infinity, bLowMax = -Infinity, bTopMax = -Infinity;
+    for (let k = 2; k < W.length; k += 3) zLow = Math.min(zLow, W[k]);
+    for (let k = 0; k < W.length; k += 3) {
+      const b = worldToFrame(f0, W[k], W[k + 1])[1];
+      if (W[k + 2] < zLow + 5) bLowMax = Math.max(bLowMax, b);
+      bTopMax = Math.max(bTopMax, b);
     }
+    expect(bTopMax - bLowMax).toBeGreaterThan(12);
     // the synthetic foot has no gap between the toes: the post is reported, not hidden
     expect(thong.warnings.some((w) => /toe post/.test(w))).toBe(true);
     const split = gen((p) => (p.chappalStyle = 'splitToe'));
@@ -221,8 +230,19 @@ describe('footwear generator', () => {
   it('shoe: enclosed standard-shape lattice upper around the foot with an ankle opening, rules met', () => {
     const r = gen(() => {}, 'shoe');
     expect(r.kind).toBe('shoe');
-    expect(r.parts.solids).toHaveLength(2); // outsole + solid rim; the upper is lattice
+    expect(r.parts.solids).toHaveLength(1); // outsole; the sole wall (cage) and the upper are lattice
     for (const s of r.parts.solids) expect(consistent(s)).toBe(true);
+    // double-skin upper (like the reference shoes): over the forefoot there are nodes in two
+    // layers, one shell (0.6 × cell) apart
+    {
+      const l = r.parts.lattice, f = foot.surface.frame;
+      const zs: number[] = [];
+      for (let v = 0; v < l.nodes.length / 3; v++) {
+        const [a, b] = worldToFrame(f, l.nodes[3 * v], l.nodes[3 * v + 1]);
+        if (Math.abs(a) < 8 && b > 150 && b < 170 && l.nodes[3 * v + 2] > 35) zs.push(l.nodes[3 * v + 2]);
+      }
+      expect(Math.max(...zs) - Math.min(...zs)).toBeGreaterThan(3);
+    }
     expect(r.strutCount).toBeGreaterThan(gen().strutCount);
     expect(r.rules.every((x) => x.ok)).toBe(true);
     expect(minGap(foot, r)).toBeGreaterThanOrEqual(1 - 0.01);
@@ -240,9 +260,12 @@ describe('footwear generator', () => {
     expect(heelTop).toBeLessThan(35); // opening over the heel/ankle: nothing above the footbed there
   });
 
-  it('lattice side wall option and tread', () => {
-    const cage = gen((p) => (p.sideWall = 'lattice'), 'shoe');
-    expect(cage.parts.solids).toHaveLength(1);
+  it('side wall options and tread', () => {
+    const solid = gen((p) => (p.sideWall = 'solid'), 'shoe');
+    expect(solid.parts.solids).toHaveLength(2); // outsole + solid rim wall
+    expect(solid.rules.every((x) => x.ok)).toBe(true);
+    const cage = gen((p) => (p.sideWall = 'lattice'));
+    expect(cage.parts.solids).toHaveLength(2); // outsole + strap
     expect(cage.rules.every((x) => x.ok)).toBe(true);
     const flat = gen((p) => (p.tread = 'none'));
     const hex = gen((p) => (p.tread = 'hexagon'));
@@ -250,18 +273,15 @@ describe('footwear generator', () => {
     expect(zMin(hex)).toBeCloseTo(zMin(flat), 4); // grooves go up into the sole, the base stays flat
   });
 
-  it('thong: the Y-strap reaches the medial and lateral sides at the level of the arch end', () => {
+  it('thong: the wings reach the medial and lateral sides of the sole up to the level of the arch end', () => {
     const f = foot.surface.frame;
     const legsAt = (r: FootwearResult) => {
-      // the lowest points of each arm = where it comes down into the sole
-      const bs: number[] = [];
-      for (const i of [2, 3]) {
-        const P = r.parts.solids[i].positions;
-        let zMin = Infinity;
-        for (let k = 2; k < P.length; k += 3) zMin = Math.min(zMin, P[k]);
-        for (let k = 0; k < P.length; k += 3) if (P[k + 2] < zMin + 3) bs.push(worldToFrame(f, P[k], P[k + 1])[1]);
-      }
-      return bs.reduce((x, y) => x + y, 0) / bs.length;
+      // the lowest points of the wings = where they come down into the sole; their front end
+      let zMin = Infinity, bMax = -Infinity;
+      const P = r.parts.solids[2].positions;
+      for (let k = 2; k < P.length; k += 3) zMin = Math.min(zMin, P[k]);
+      for (let k = 0; k < P.length; k += 3) if (P[k + 2] < zMin + 3) bMax = Math.max(bMax, worldToFrame(f, P[k], P[k + 1])[1]);
+      return bMax;
     };
     const m = closedFoot(3);
     for (const aeY of [135, 150]) {
@@ -270,7 +290,7 @@ describe('footwear generator', () => {
       p.chappalStyle = 'thong';
       const r = generateFootwear(ff, p);
       const bAE = ff.surface.frame.archEnd![1];
-      expect(Math.abs(legsAt(r) - bAE)).toBeLessThan(12);
+      expect(Math.abs(legsAt(r) - bAE)).toBeLessThan(6);
     }
   });
 
@@ -285,7 +305,7 @@ describe('footwear generator', () => {
       const r = generateFootwear(f, p);
       expect(r.warnings.join(' ')).toMatch(/estimated foot shape/);
       expect(r.rules.every((x) => x.ok)).toBe(true);
-      if (kind === 'chappal') expect(r.parts.solids.length).toBe(style === 'slide' ? 3 : 6); // outsole, rim, strap / arms, post, knot
+      if (kind === 'chappal') expect(r.parts.solids.length).toBe(style === 'slide' ? 3 : 5); // outsole, rim, strap / wings, ridge, post
       else expect(r.strutCount).toBeGreaterThan(8000); // sole + enclosed upper
     }
     // the estimated dorsum is foot-shaped: highest over the instep, low at the toes

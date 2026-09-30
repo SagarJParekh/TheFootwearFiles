@@ -18,7 +18,7 @@ function Slider(props: { label: string; range: (typeof R)[keyof typeof R]; value
 
 const KIND_INFO: Record<FootwearKind, { title: string; sub: string }> = {
   chappal: { title: 'Chappal', sub: 'Lattice footbed · solid strap' },
-  shoe: { title: 'Shoe', sub: 'Lattice upper · lattice sole' },
+  shoe: { title: 'Shoe', sub: 'Double-skin lattice upper' },
 };
 
 /** Sections 2b–4 of the designer when the "Footwear" category is chosen. */
@@ -111,14 +111,14 @@ export function FootwearPanel({ ready }: { ready: boolean }) {
           <SelectField<TreadPattern> label="Outsole tread" value={p.tread} options={TREAD_LABEL} onChange={(v) => updateFootwear('Tread', (q) => ({ ...q, tread: v }))} />
           {p.kind === 'chappal' ? (
             <>
-              <div className="field-group-label">{p.chappalStyle === 'slide' ? 'Strap' : 'Y-strap and toe post'}</div>
+              <div className="field-group-label">{p.chappalStyle === 'slide' ? 'Strap' : 'Wings, ridge and toe post'}</div>
               {p.chappalStyle === 'slide' ? (
                 <>
-                  <Slider label="Strap width" range={R.strapWidth} value={p.strap.width} set={(q, v) => ({ ...q, strap: { ...q.strap, width: v } })} testId="fw-strap-width" />
-                  <Slider label="Strap position (from the heel)" range={R.strapPosition} value={p.strap.position} set={(q, v) => ({ ...q, strap: { ...q.strap, position: v } })} />
+                  <Slider label="Strap length on top of the foot" range={R.strapWidth} value={p.strap.width} set={(q, v) => ({ ...q, strap: { ...q.strap, width: v } })} testId="fw-strap-width" />
+                  <Slider label="Strap position (centre, from the heel)" range={R.strapPosition} value={p.strap.position} set={(q, v) => ({ ...q, strap: { ...q.strap, position: v } })} />
                 </>
               ) : (
-                <Slider label="Strap arm width" range={R.thongArmWidth} value={p.thongArmWidth} set={(q, v) => ({ ...q, thongArmWidth: v })} />
+                <Slider label="Wing width (where it meets the sole)" range={R.thongArmWidth} value={p.thongArmWidth} set={(q, v) => ({ ...q, thongArmWidth: v })} />
               )}
               <Slider label="Strap thickness" range={R.strapThickness} value={p.strap.thickness} set={(q, v) => ({ ...q, strap: { ...q.strap, thickness: v } })} />
             </>

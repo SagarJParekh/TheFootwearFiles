@@ -29,7 +29,7 @@ import { signedVolume } from '../mesh/normals';
 import { rasterizeHighestSurface, signedDistance, sphericalDilate, sphericalErode } from './fields';
 import { estimateDorsum } from './dorsum';
 import { appendLattice, concatMeshes, conformalLattice, emptyLattice, latticeToMesh, sampleGrid, type Lattice } from './lattice';
-import { evenThetas, fitArchHeight, loftBand, rowExtent, sectionAt, sectionLattice, smoothEnvelope, standardOutline, sweepRounded, type Section } from './shape';
+import { archSheet, fitArchHeight, rowExtent, sectionBetween, sectionLattice, smoothEnvelope, standardOutline, sweepRounded, type Section } from './shape';
 import { FOOTWEAR_RULES, type FootwearKind, type FootwearParams } from './params';
 
 /** Per-scan data that doesn't depend on the design parameters (cached by the caller). */
@@ -461,10 +461,13 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   let lastFinite = rowEdge.find(Number.isFinite) ?? minT;
   for (let j = 0; j < g.ny; j++) (Number.isFinite(rowEdge[j]) ? (lastFinite = rowEdge[j]) : (rowEdge[j] = lastFinite));
   const edgeLine = smoothEnvelope(rowEdge, Math.round(25 / g.h));
+  const toeLip = p.kind === 'chappal' ? 0.6 * p.rimHeight : 0;
   const rimZ = (b: number) => {
     const j = Math.min(g.ny - 1, Math.max(0, Math.round((b - g.b0) / g.h)));
     const sLen = (b - outBack) / (length || 1);
-    return edgeLine[j] + p.rimHeight * (0.45 + 0.55 * smoothstep(0.65, 0.2, sLen));
+    // highest round the heel, lower along the sides, and (chappals) a toe bumper that turns up
+    // round the front like the reference slides
+    return edgeLine[j] + p.rimHeight * (0.45 + 0.55 * smoothstep(0.65, 0.2, sLen)) + toeLip * smoothstep(0.86, 1, sLen);
   };
   const ringSdf = new Float32Array(nodeCount);
   const rimTop = new Float32Array(nodeCount);
@@ -588,115 +591,106 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   let upperStart = -1;
   const collarEdges = new Set<number>();
 
-  if (p.kind === 'chappal' && !thong) {
-    // Slide: one smooth band from the medial to the lateral side, arched over the foot, with
-    // rounded (pillow) front and back edges.
-    const t = p.strap.thickness, w = p.strap.width;
-    const bc = silBack + p.strap.position * footLen;
-    const N = 36;
-    const bs = Array.from({ length: N }, (_, i) => bc + (w / 2) * Math.sin(Math.PI * (i / (N - 1) - 0.5)));
-    const inset = Math.max(wall / 2, t);
-    const rows = bs
-      .map((b) => ({ b, ext: extentAt(b, inset), zBase: rimZ(b) - 2 }))
-      .filter((row) => row.ext)
-      .map((row) => ({ ...row, ac: row.ext!.ac, hw: row.ext!.hw, hwMax: Math.max(row.ext!.hw, footHalfAt(row.b, row.ext!.ac) + c + 0.8) }));
-    // one smooth band: the same arch height and bulge along it
-    const hwBulge = Math.max(...rows.map((row) => row.hwMax - row.hw));
-    let hs = 12;
-    for (const row of rows) {
-      hs = Math.max(hs, fitArchHeight({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + hwBulge, zBase: row.zBase, p: 2.5 }, reqPts(row.b, 0.3), 12));
+  /**
+   * Arch sections every 1 mm from b0 to b1, standing on the rim (inset `inset` from the outline),
+   * each just high enough to clear the foot, then smoothed along the foot (one flowing top line
+   * and side bulge, not a copy of the foot).
+   */
+  const archRows = (b0: number, b1: number, inset: number, extra: number, pExp: number): Section[] => {
+    const raw: { b: number; ac: number; hw: number; bulge: number; zBase: number }[] = [];
+    for (let b = b0; b <= b1 + 1e-6; b += 1) {
+      const e = extentAt(b, inset);
+      if (e) raw.push({ b, ...e, bulge: Math.max(0, footHalfAt(b, e.ac) + c + 0.8 - e.hw), zBase: rimZ(b) - 2 });
     }
-    const sections = rows.map((row) => ({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + hwBulge, zBase: row.zBase, hs, p: 2.5 }));
-    const thick = sections.map((sct) => Math.max(0.6, t * Math.pow(Math.max(0, 1 - Math.abs((sct.b - bc) / (w / 2)) ** 4), 0.25)));
-    strapSolids.push(solids.length);
-    solids.push(loftBand(sections, thick, toWorld));
+    const bulge = smoothEnvelope(raw.map((row) => row.bulge), 12);
+    const req = raw.map((row, i) => fitArchHeight({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + bulge[i], zBase: row.zBase, p: pExp }, reqPts(row.b, extra), 12));
+    const hs = smoothEnvelope(req, 14);
+    return raw.map((row, i) => ({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + bulge[i], zBase: row.zBase, hs: hs[i], p: pExp }));
+  };
+  /** Pillow edges: full thickness in the middle of the sheet, rounded off towards both edges. */
+  const pillow = (t: number) => (s: number) => Math.max(0.7, t * Math.pow(Math.max(0, 1 - Math.abs(2 * s - 1) ** 6), 0.3));
+
+  if (p.kind === 'chappal' && !thong) {
+    // Slide (like the reference slides): one wide vamp that grows out of the side walls. Its
+    // front edge runs straight across over the toe joints; its back edge sweeps from the top of
+    // the instep down and back to the rim, so from the side the strap is a long diagonal.
+    const t = p.strap.thickness, w = p.strap.width;
+    const bFront = Math.min(silBack + p.strap.position * footLen + w / 2, silFront - 18);
+    const bBackTop = bFront - w;
+    const bBackSide = Math.max(silBack + 0.22 * footLen, bBackTop - 0.9 * w);
+    const rows = archRows(bBackSide - 2, bFront + 2, wall / 2, 0.3, 2.6);
+    if (rows.length > 4) {
+      strapSolids.push(solids.length);
+      solids.push(archSheet({
+        rows,
+        back: (u) => bBackTop - (bBackTop - bBackSide) * Math.pow(1 - Math.sin(Math.PI * u), 0.7),
+        front: () => bFront,
+        thickness: pillow(t),
+        toWorld,
+      }));
+    }
   }
 
   if (thong) {
-    // Thong: a toe post between the big toe and the others, and two smooth arms. Each arm is a
-    // quarter arch in its own vertical plane – from the junction above the toe web, over the
-    // foot and down to the sole at the level of the arch end – fitted around the foot like the
-    // slide strap (bulging just enough to clear its side).
-    const t = p.strap.thickness, armW = p.thongArmWidth;
+    // Thong (like the reference thongs): two wide wings grow out of the side walls and meet over
+    // the instep, leaving a window above the sole on each side; from where they meet a rounded
+    // ridge runs forward and down onto the toe post between the big toe and the others.
+    const t = p.strap.thickness, wing = p.thongArmWidth;
     const bArchEnd = frame.archEnd ? frame.archEnd[1] : b1 - 0.1 * footLen;
-    const ext = extentAt(bArchEnd, Math.max(wall / 2, t / 2));
-    type Arm = { dirA: number; dirB: number; len: number; zBase: number; sec: Omit<Section, 'hs'>; hs: number };
-    const arms: Arm[] = [];
-    for (const medial of [true, false]) {
-      if (!ext) break;
-      const sideA = ext.ac + (frame.medialSign < 0 === medial ? -1 : 1) * ext.hw;
-      const dA = sideA - post[0], dB = bArchEnd - post[1], len = Math.hypot(dA, dB) || 1;
-      const dirA = dA / len, dirB = dB / len;
-      const perpA = -dirB, perpB = dirA;
-      // foot profile in the arm's plane (highest point under the arm's width), + clearance
-      const pts: [number, number][] = [];
-      let reach = 0;
-      for (let q = 0; q <= len - t / 2; q += 1) {
-        let need = -Infinity;
-        for (let u = -0.5; u <= 0.5; u += 0.125) {
-          const v = hcAt(post[0] + dirA * q + perpA * u * armW, post[1] + dirB * q + perpB * u * armW);
-          if (Number.isFinite(v)) need = Math.max(need, v);
-        }
-        if (!Number.isFinite(need)) continue;
-        pts.push([q, need + t / 2 + 0.4]);
-        reach = Math.max(reach, q);
-      }
-      const zBase = rimZ(bArchEnd) - 1.5;
-      // a small bulge at most: the arm lands on the rim, not outside the sole
-      const sec = { b: 0, ac: 0, hw: len, hwMax: Math.min(len + 3, Math.max(len, reach + c + t / 2 + 1)), zBase, p: 2.5 };
-      arms.push({ dirA, dirB, len, zBase, sec, hs: fitArchHeight(sec, pts, 8) });
-    }
-    // one junction height for both arms
-    const zJ = Math.max(...arms.map((arm) => arm.zBase + arm.hs), at(T, post[0], post[1]) + 10);
-    for (const arm of arms) {
-      const sec = { ...arm.sec, hs: zJ - arm.zBase };
-      const ths = evenThetas(sec, 96).filter((th) => th >= Math.PI / 2 - 1e-9);
-      const path: [number, number, number][] = ths.map((th) => {
-        const [q, z] = sectionAt(sec, th);
-        return [post[0] + arm.dirA * q, post[1] + arm.dirB * q, z];
-      });
-      const n = path.length;
-      const widths = path.map((_, i) => armW * (0.6 + 0.4 * Math.pow(i / (n - 1), 0.6)));
-      // Flat across itself (no twist): the width runs horizontally – across the arm on top of the
-      // foot, turning to run along the sole's edge where the arm comes down into the rim.
-      const perpA = -arm.dirB, perpB = arm.dirA;
-      const edgeSign = Math.sign(perpB) || 1;
-      const ups: [number, number, number][] = path.map((_, i) => {
-        const f = smoothstep(0.45, 1, i / (n - 1));
-        let wa = perpA * (1 - f), wb = perpB * (1 - f) + edgeSign * f;
-        const wl = Math.hypot(wa, wb) || 1;
-        wa /= wl;
-        wb /= wl;
-        const q0 = path[Math.max(0, i - 1)], q1 = path[Math.min(n - 1, i + 1)];
-        const tx = q1[0] - q0[0], ty = q1[1] - q0[1], tz = q1[2] - q0[2];
-        let ux = wb * tz, uy = -wa * tz, uz = wa * ty - wb * tx; // W × t
-        if (ux * arm.dirA + uy * arm.dirB + uz < 0) [ux, uy, uz] = [-ux, -uy, -uz];
-        return [ux, uy, uz];
-      });
+    // The wings come down onto the sole along the arch and end there at the arch end (the
+    // window in front of them starts at the arch end); on top they run on towards the toe post.
+    const bJ = Math.min(post[1] - 22, Math.max(bArchEnd + 20, silBack + 0.62 * footLen)); // front of the wings on top
+    const bWin = Math.min(bArchEnd, bJ - 15); // front of the wings at the sole
+    const bBackSide = Math.max(silBack + 0.2 * footLen, bWin - wing); // back of the wings at the sole
+    const bBackTop = Math.min(bJ - 20, Math.max(bBackSide + 20, silBack + 0.5 * footLen)); // back of the wings on top
+    const rows = archRows(bBackSide - 2, bJ + 2, wall / 2, t / 2 + 0.3, 2.4);
+    if (rows.length > 4) {
       strapSolids.push(solids.length);
-      solids.push(sweepRounded(path, ups, widths, path.map(() => t), toWorld));
+      solids.push(archSheet({
+        rows,
+        back: (u) => bBackTop - (bBackTop - bBackSide) * Math.pow(1 - Math.sin(Math.PI * u), 0.7),
+        front: (u) => bWin + (bJ - bWin) * Math.pow(Math.sin(Math.PI * u), 2.5),
+        thickness: pillow(t),
+        toWorld,
+      }));
+      // ridge: from the top of the wings forward and down to the post, above the foot
+      const top = sectionBetween(rows, bJ - 3);
+      const start: [number, number, number] = [top.ac, bJ - 3, top.zBase + top.hs + t / 2];
+      const zT = at(T, post[0], post[1]);
+      const n = 24;
+      const path: [number, number, number][] = [];
+      for (let i = 0; i <= n; i++) {
+        const f = i / n, e = f * f * (3 - 2 * f);
+        const a = start[0] + (post[0] - start[0]) * e, b = start[1] + (post[1] - start[1]) * f;
+        const need = hcAt(a, b);
+        const zLine = start[2] + (zT + 9 - start[2]) * Math.pow(f, 1.4);
+        path.push([a, b, Math.max(zLine, Number.isFinite(need) ? need + t / 2 + 0.6 : -Infinity)]);
+      }
+      // (keep it a smooth, falling line)
+      for (let i = n - 1; i >= 0; i--) path[i][2] = Math.max(path[i][2], path[i + 1][2]);
+      const zEnd = path[n][2];
+      strapSolids.push(solids.length);
+      solids.push(sweepRounded(path, path.map(() => [0, 0, 1]), path.map((_, i) => 20 - 10 * (i / n)), path.map((_, i) => t + 1.5 * (i / n)), toWorld, 24, 3));
+      // post: rounded, longer along the foot than across, flaring into the footbed and tapering up
+      const zPost0 = at(plateTop, post[0], post[1]);
+      postSolid = solids.length;
+      solids.push(sweepRounded(
+        [[post[0], post[1], zPost0], [post[0], post[1], zT + 1], [post[0], post[1], (zT + zEnd) / 2], [post[0], post[1], zEnd + 1]],
+        [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]], [10, 9, 7, 7], [16, 14, 11, 10], toWorld, 24, 3,
+      ));
     }
-    // post: rounded, longer along the foot than across, flaring into the footbed and tapering up
-    const zPost0 = at(plateTop, post[0], post[1]);
-    const zT = at(T, post[0], post[1]);
-    postSolid = solids.length;
-    solids.push(sweepRounded(
-      [[post[0], post[1], zPost0], [post[0], post[1], zT + 1], [post[0], post[1], (zT + zJ) / 2], [post[0], post[1], zJ]],
-      [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]], [10, 9, 6.5, 6], [16, 14, 10, 9], toWorld, 24, 3,
-    ));
-    // rounded knot where the two arms meet over the post
-    strapSolids.push(solids.length);
-    solids.push(sweepRounded(
-      [[post[0], post[1] - 5, zJ - 0.5], [post[0], post[1], zJ], [post[0], post[1] + 4, zJ - 0.5]],
-      [[0, 0, 1], [0, 0, 1], [0, 0, 1]], [armW * 0.62, armW * 0.7, armW * 0.5], [t + 1, t + 1.5, t + 1], toWorld, 24, 3,
-    ));
   }
 
   if (p.kind === 'shoe') {
     // Shoe: a smooth last-like upper standing on the rim, fitted around the foot, with a
     // regular lattice and a clean collar around the ankle opening.
     const bThroat = silBack + p.shoe.throat * footLen;
-    const collarZ = (b: number) => rimZ(b) + p.shoe.collarHeight + 90 * smoothstep(bThroat - 30, bThroat, b) ** 2;
+    // top line: heel tab at the back, a dip under the ankle bones, then a rounded rise to the throat
+    const bAnkle = silBack + 0.2 * footLen;
+    const collarZ = (b: number) => {
+      const rise = Math.max(0, 1 - Math.max(0, bThroat - b) / 35);
+      return rimZ(b) + p.shoe.collarHeight * (1 - 0.18 * Math.exp(-(((b - bAnkle) / 22) ** 2))) + 4 * smoothstep(silBack + 25, silBack, b) + 90 * (1 - Math.sqrt(1 - rise * rise));
+    };
     const opening = (b: number, z: number) => b < bThroat && z > collarZ(b);
     const step = p.cellSize * 0.866;
     const rows: { b: number; ac: number; hw: number; bulge: number; zBase: number; req: number }[] = [];
@@ -714,7 +708,8 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     }
     const hs = smoothEnvelope(rows.map((row) => row.req), w);
     const sections = rows.map((row, i) => ({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + bulge[i], zBase: row.zBase, hs: hs[i], p: 2.7 }));
-    const up = sectionLattice({ sections, cell: p.cellSize, radius: r, collarR: p.shoe.collarDiameter / 2, opening, collarZ, toWorld });
+    // double-skin lattice (inner skin at the section, outer skin one shell further out)
+    const up = sectionLattice({ sections, cell: p.cellSize, radius: r, collarR: p.shoe.collarDiameter / 2, opening, collarZ, toWorld, shell: Math.max(2 * r + 1.5, 0.6 * p.cellSize) });
     upperStart = lattice.nodes.length / 3;
     const edgeBase = lattice.radii.length;
     appendLattice(lattice, up);

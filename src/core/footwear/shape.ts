@@ -29,37 +29,41 @@ export type ToWorld = (a: number, b: number, z: number) => [number, number, numb
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Standard sole outline (sandal / last-bottom proportions): a closed spline through a rounded
- * heel, a gentle waist (much fuller than an insole's arch cut-in), the ball widths from the M1/M5
- * landmarks and a rounded toe leaning towards the big toe.
+ * Control points of the standard sole outline (last-bottom proportions, like the reference
+ * slides and shoes): a narrow rounded heel, a waist that is fuller on the lateral side, the ball
+ * from the M1/M5 landmarks and a rounded toe leaning towards the big toe. Each point comes with
+ * the direction it moves in when the outline has to grow there.
  */
-export function soleOutline(frame: InsoleFrame, length: number, heelBack: number): Pt[] {
+export function soleControls(frame: InsoleFrame, length: number, heelBack: number): { ctrl: Pt[]; dir: Pt[] } {
   const m = frame.medialSign, lat = -m, L = length;
   const [a1, b1] = frame.met1, [a5, b5] = frame.met5;
-  const medBall = Math.abs(a1) + 10, latBall = Math.abs(a5) + 10;
-  const hw = 0.14 * L; // heel half width
+  const medBall = Math.abs(a1) + 6, latBall = Math.abs(a5) + 6;
+  const hw = 0.115 * L; // heel half width
   const bToe = heelBack + L;
-  const ctrl: Pt[] = [
-    [0, heelBack],
-    [lat * hw * 0.82, heelBack + 0.045 * L],
-    [lat * hw, heelBack + 0.15 * L],
-    [lat * (0.35 * hw + 0.65 * latBall) * 0.98, heelBack + 0.45 * L],
-    [lat * latBall, b5],
-    [lat * latBall * 0.88, b5 + 0.45 * (bToe - b5)],
-    [lat * latBall * 0.5, bToe - 0.045 * L],
-    [m * 0.2 * medBall, bToe],
-    [m * medBall * 0.95, b1 + 0.55 * (bToe - b1)],
-    [m * medBall, b1],
-    [m * (0.3 * hw + 0.7 * medBall) * 0.94, heelBack + 0.45 * L],
-    [m * hw, heelBack + 0.15 * L],
-    [m * hw * 0.82, heelBack + 0.045 * L],
+  const s = Math.SQRT1_2;
+  const pts: [Pt, Pt][] = [
+    [[0, heelBack], [0, -1]],
+    [[lat * hw * 0.8, heelBack + 0.04 * L], [lat * s, -s]],
+    [[lat * hw, heelBack + 0.16 * L], [lat, 0]],
+    [[lat * (0.45 * hw + 0.55 * latBall) * 0.97, heelBack + 0.42 * L], [lat, 0]],
+    [[lat * latBall, b5], [lat, 0]],
+    [[lat * latBall * 0.9, b5 + 0.45 * (bToe - b5)], [lat * 0.95, 0.3]],
+    [[lat * latBall * 0.55, bToe - 0.05 * L], [lat * 0.55, 0.85]],
+    [[m * 0.25 * medBall, bToe], [0, 1]],
+    [[m * medBall * 0.95, b1 + 0.55 * (bToe - b1)], [m * 0.95, 0.3]],
+    [[m * medBall, b1], [m, 0]],
+    [[m * (0.55 * hw + 0.45 * medBall) * 0.9, heelBack + 0.42 * L], [m, 0]],
+    [[m * hw, heelBack + 0.16 * L], [m, 0]],
+    [[m * hw * 0.8, heelBack + 0.04 * L], [m * s, -s]],
   ];
-  return catmullRomClosed(ctrl, 14);
+  return { ctrl: pts.map((p) => p[0]), dir: pts.map(([, d]) => { const l = Math.hypot(d[0], d[1]); return [d[0] / l, d[1] / l] as Pt; }) };
 }
 
 /**
  * Standard outline (sole spline from heel back to toe tip) grown until every node for which
- * `contain(k)` holds is inside. Returns the polygon and its signed distance field.
+ * `contain(k)` holds is inside. Each control point grows on its own (heel, waist, ball and toe
+ * separately), so the outline keeps a foot shape instead of turning into a scaled-up box.
+ * Returns the polygon and its signed distance field.
  */
 export function standardOutline(frame: InsoleFrame, g: Grid, heelBack: number, length: number, contain: Uint8Array): { poly: Pt[]; sdf: Float32Array } {
   // Only the border of the region matters for containment.
@@ -69,28 +73,39 @@ export function standardOutline(frame: InsoleFrame, g: Grid, heelBack: number, l
       const k = j * g.nx + i;
       if (contain[k] && (!contain[k - 1] || !contain[k + 1] || !contain[k - g.nx] || !contain[k + g.nx])) border.push([g.a0 + i * g.h, g.b0 + j * g.h]);
     }
-  // Grow the spline where the region sticks out: longer at the heel or the toes, wider at
-  // the sides (the spline keeps its standard proportions otherwise).
-  let back = heelBack, len = length, scale = 1;
-  let poly: Pt[] = [];
-  for (let it = 0; it < 40; it++) {
-    poly = soleOutline(frame, len, back).map(([a, b]) => [a * scale, b] as Pt);
-    let worst = -Infinity, wb = 0;
+  const { ctrl, dir } = soleControls(frame, length, heelBack);
+  const n = ctrl.length;
+  let poly: Pt[] = catmullRomClosed(ctrl, 14);
+  for (let it = 0; it < 120; it++) {
+    // How far the region sticks out near each control point (points are assigned to the
+    // nearest control point).
+    const need = new Float64Array(n);
+    let any = false;
     for (const [a, b] of border) {
       const d = polygonSdf(poly, a, b);
-      if (d > worst) {
-        worst = d;
-        wb = b;
+      if (d <= -0.3) continue;
+      any = true;
+      let best = 0, bd = Infinity;
+      for (let i = 0; i < n; i++) {
+        const e = Math.hypot(ctrl[i][0] - a, ctrl[i][1] - b);
+        if (e < bd) {
+          bd = e;
+          best = i;
+        }
+      }
+      need[best] = Math.max(need[best], d + 0.6);
+    }
+    if (!any) break;
+    // move the point out, and its neighbours a little (keeps the curve fair)
+    for (let i = 0; i < n; i++) {
+      if (!need[i]) continue;
+      const step = Math.min(4, need[i]);
+      for (const [q, f] of [[i, 0.75], [(i + 1) % n, 0.3], [(i + n - 1) % n, 0.3]] as const) {
+        ctrl[q][0] += dir[q][0] * step * f;
+        ctrl[q][1] += dir[q][1] * step * f;
       }
     }
-    if (worst <= -0.3) break;
-    const step = Math.min(4, worst + 0.5);
-    const f = (wb - back) / len;
-    if (f < 0.12) {
-      back -= step;
-      len += step;
-    } else if (f > 0.85) len += step;
-    else scale *= 1 + Math.min(0.05, step / 45);
+    poly = catmullRomClosed(ctrl, 14);
   }
   const sdf = new Float32Array(g.nx * g.ny);
   for (let j = 0; j < g.ny; j++)
@@ -261,29 +276,44 @@ function orientOutward(positions: number[], idx: number[]): MeshData {
  * outer curves; the feet (θ = 0, π) are closed by the ring itself.
  */
 export function loftBand(sections: Section[], thickness: number[], toWorld: ToWorld, M = 48): MeshData {
-  const pos: number[] = [];
-  const R = 2 * (M + 1);
+  const outerRows: P3[][] = [], innerRows: P3[][] = [];
   for (let i = 0; i < sections.length; i++) {
     const s = sections[i];
-    const th = evenThetas(s, M);
-    const outer: number[][] = [], inner: number[][] = [];
-    for (const t of th) {
+    const outer: P3[] = [], inner: P3[] = [];
+    for (const t of evenThetas(s, M)) {
       const [a, z] = sectionAt(s, t);
       const [na, nz] = sectionNormal(s, t);
-      inner.push(toWorld(a, s.b, z));
-      outer.push(toWorld(a + na * thickness[i], s.b, z + nz * thickness[i]));
+      inner.push([a, s.b, z]);
+      outer.push([a + na * thickness[i], s.b, z + nz * thickness[i]]);
     }
-    for (const p of outer) pos.push(...p);
-    for (let j = M; j >= 0; j--) pos.push(...inner[j]);
+    outerRows.push(outer);
+    innerRows.push(inner);
+  }
+  return loftRows(outerRows, innerRows, toWorld);
+}
+
+type P3 = [number, number, number];
+
+/**
+ * Closed solid between two grids of points (frame coordinates, rows × columns, same shape):
+ * each row's outer curve and reversed inner curve form a ring; consecutive rings are joined
+ * and the first and last rings are capped.
+ */
+export function loftRows(outerRows: P3[][], innerRows: P3[][], toWorld: ToWorld): MeshData {
+  const pos: number[] = [];
+  const M = outerRows[0].length - 1, R = 2 * (M + 1), n = outerRows.length;
+  for (let i = 0; i < n; i++) {
+    for (const [a, b, z] of outerRows[i]) pos.push(...toWorld(a, b, z));
+    for (let j = M; j >= 0; j--) pos.push(...toWorld(...innerRows[i][j]));
   }
   const idx: number[] = [];
-  for (let i = 0; i + 1 < sections.length; i++)
+  for (let i = 0; i + 1 < n; i++)
     for (let v = 0; v < R; v++) {
       const p = i * R + v, q = i * R + ((v + 1) % R), u = (i + 1) * R + ((v + 1) % R), w = (i + 1) * R + v;
       idx.push(p, q, u, p, u, w);
     }
   // end caps: the two ends face opposite ways, so the far one is wound the other way round
-  for (const i of [0, sections.length - 1]) {
+  for (const i of [0, n - 1]) {
     const flip = i === 0;
     for (let j = 0; j < M; j++) {
       const o0 = i * R + j, o1 = i * R + j + 1, i1 = i * R + (R - 1 - (j + 1)), i0 = i * R + (R - 1 - j);
@@ -292,6 +322,68 @@ export function loftBand(sections: Section[], thickness: number[], toWorld: ToWo
     }
   }
   return orientOutward(pos, idx);
+}
+
+/** Section at any b, interpolated linearly between `rows` (sorted by b, 1 mm or finer apart). */
+export function sectionBetween(rows: Section[], b: number): Section {
+  if (b <= rows[0].b) return { ...rows[0], b };
+  const last = rows[rows.length - 1];
+  if (b >= last.b) return { ...last, b };
+  let i = 0;
+  while (i < rows.length - 2 && rows[i + 1].b < b) i++;
+  const s0 = rows[i], s1 = rows[i + 1], f = (b - s0.b) / (s1.b - s0.b || 1);
+  const mix = (x: number, y: number) => x + (y - x) * f;
+  return { b, ac: mix(s0.ac, s1.ac), hw: mix(s0.hw, s1.hw), hwMax: mix(s0.hwMax ?? s0.hw, s1.hwMax ?? s1.hw), zBase: mix(s0.zBase, s1.zBase), hs: mix(s0.hs, s1.hs), p: s0.p };
+}
+
+/**
+ * A sheet on the arch surface through `rows` (like the vamp of a slide or the wings of a thong),
+ * cut out along the arch by two edges: at arch parameter u ∈ [0, 1] (0 and 1 = the two bases,
+ * 0.5 = the top) it runs from b = back(u) to b = front(u). Its inner face is the arch; it is
+ * `thickness(s)` thick outward (s ∈ [0, 1] from the back edge to the front edge, so the edges can
+ * be rounded off).
+ */
+export function archSheet(opts: {
+  rows: Section[];
+  back: (u: number) => number;
+  front: (u: number) => number;
+  thickness: (s: number) => number;
+  toWorld: ToWorld;
+  M?: number;
+  N?: number;
+}): MeshData {
+  const { rows, back, front, thickness, toWorld, M = 56, N = 40 } = opts;
+  // arch parameter spaced by arc length on a representative section
+  const mid = sectionBetween(rows, (back(0.5) + front(0.5)) / 2);
+  const thetas = evenThetas(mid, M);
+  const inner: P3[][] = [];
+  for (let i = 0; i <= N; i++) {
+    const s = 0.5 - 0.5 * Math.cos((Math.PI * i) / N); // denser at the (rounded) edges
+    const row: P3[] = [];
+    for (const th of thetas) {
+      const u = th / Math.PI;
+      const b = back(u) + (front(u) - back(u)) * s;
+      const sec = sectionBetween(rows, b);
+      const [a, z] = sectionAt(sec, th);
+      row.push([a, b, z]);
+    }
+    inner.push(row);
+  }
+  // outward normals from the grid (across the arch × along the sheet)
+  const outer: P3[][] = inner.map((row, i) =>
+    row.map((pt, j) => {
+      const i0 = Math.max(0, i - 1), i1 = Math.min(N, i + 1), j0 = Math.max(0, j - 1), j1 = Math.min(M, j + 1);
+      const d1 = inner[i1][j].map((v, k) => v - inner[i0][j][k]), d2 = row[j1].map((v, k) => v - row[j0][k]);
+      let nx = d1[1] * d2[2] - d1[2] * d2[1], ny = d1[2] * d2[0] - d1[0] * d2[2], nz = d1[0] * d2[1] - d1[1] * d2[0];
+      const l = Math.hypot(nx, ny, nz) || 1;
+      nx /= l; ny /= l; nz /= l;
+      const sec = sectionBetween(rows, pt[1]);
+      if (nx * (pt[0] - sec.ac) + nz * (pt[2] - (sec.zBase + 0.3 * sec.hs)) < 0) [nx, ny, nz] = [-nx, -ny, -nz];
+      const t = thickness(0.5 - 0.5 * Math.cos((Math.PI * i) / N));
+      return [pt[0] + nx * t, pt[1] + ny * t, pt[2] + nz * t] as P3;
+    }),
+  );
+  return loftRows(outer, inner, toWorld);
 }
 
 /**
@@ -362,14 +454,22 @@ export function sectionLattice(opts: {
   opening: (b: number, z: number) => boolean;
   collarZ: (b: number) => number;
   toWorld: ToWorld;
+  /**
+   * Double skin (like the reference lattice shoes): a second, outer copy of the lattice this far
+   * out along the surface normal, braced to the inner one by crossing diagonals (an X in section).
+   */
+  shell?: number;
 }): Lattice & { collarEdges: Set<number>; nodeCount: number } {
-  const { sections, cell, radius: r, collarR, opening, collarZ, toWorld } = opts;
+  const { sections, cell, radius: r, collarR, opening, collarZ, toWorld, shell = 0 } = opts;
   const out = { ...emptyLattice(), collarEdges: new Set<number>(), nodeCount: 0 };
+  const outerOf = new Map<number, [number, number, number]>(); // node → its outer copy's position
   const node = (s: Section, th: number, extra = 0) => {
     const [a, z] = sectionAt(s, th);
     const [na, nz] = sectionNormal(s, th);
     out.nodes.push(...toWorld(a + na * extra, s.b, z + nz * extra));
-    return out.nodes.length / 3 - 1;
+    const id = out.nodes.length / 3 - 1;
+    if (shell > 0 && extra === 0) outerOf.set(id, toWorld(a + na * shell, s.b, z + nz * shell));
+    return id;
   };
   const edge = (p: number, q: number, rad = r) => {
     if (p < 0 || q < 0 || p === q) return;
@@ -416,6 +516,23 @@ export function sectionLattice(opts: {
       if (k >= R1.ids.length - 1 || (j < R0.ids.length - 1 && R0.ts[j + 1] <= R1.ts[k + 1])) j++;
       else k++;
       edge(R0.ids[j], R1.ids[k]);
+    }
+  }
+  if (shell > 0) {
+    // outer skin with the same layout, and each inner strut crossed by two diagonals to the outer skin
+    const outerId = new Map<number, number>();
+    for (const [id, pos] of outerOf) {
+      out.nodes.push(...pos);
+      outerId.set(id, out.nodes.length / 3 - 1);
+    }
+    const inner = out.edges.length / 2;
+    for (let e = 0; e < inner; e++) {
+      const p = out.edges[2 * e], q = out.edges[2 * e + 1];
+      const po = outerId.get(p), qo = outerId.get(q);
+      if (po === undefined || qo === undefined) continue;
+      edge(po, qo);
+      edge(p, qo);
+      edge(q, po);
     }
   }
   // collar: medial side front to back… around the heel … lateral side back to front, plus the

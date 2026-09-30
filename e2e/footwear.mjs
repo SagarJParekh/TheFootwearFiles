@@ -76,7 +76,7 @@ try {
   await page.check('[data-testid=fw-kind-shoe]');
   await settle();
   s = await state();
-  check(s.kind === 'shoe' && s.p.sideWall === 'solid' && s.upperGap?.min >= 0.97 && rulesOk(s), `shoe: standard-shape lattice upper on a solid sole, rules met (footbed ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm, upper ${s.upperGap?.min.toFixed(1)}–${s.upperGap?.max.toFixed(1)} mm from the foot)`);
+  check(s.kind === 'shoe' && s.p.sideWall === 'lattice' && s.upperGap?.min >= 0.97 && rulesOk(s), `shoe: double-skin lattice upper on a lattice sole wall, rules met (footbed ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm, upper ${s.upperGap?.min.toFixed(1)}–${s.upperGap?.max.toFixed(1)} mm from the foot)`);
   await page.keyboard.press('Control+z');
   await settle();
   s = await state();
@@ -124,7 +124,7 @@ try {
   await page.selectOption('select:has(option[value=splitToe])', 'thong');
   await settle();
   s = await state();
-  check(s.p.chappalStyle === 'thong' && rulesOk(s), 'plantar scan: thong Y-strap (anchored at the arch end), rules met');
+  check(s.p.chappalStyle === 'thong' && rulesOk(s), 'plantar scan: thong wings (down to the sole at the arch end), rules met');
   await page.check('[data-testid=fw-kind-shoe]');
   await settle();
   s = await state();
