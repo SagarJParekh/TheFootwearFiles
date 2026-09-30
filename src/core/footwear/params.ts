@@ -88,7 +88,7 @@ export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chap
     tread: 'hexagon',
     strap: { width: 65, thickness: 3, position: 0.6 },
     thongArmWidth: 20,
-    shoe: { collarHeight: 45, throat: 0.58, collarDiameter: 3 },
+    shoe: { collarHeight: 45, throat: 0.45, collarDiameter: 3 },
   };
 }
 

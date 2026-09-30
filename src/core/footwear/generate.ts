@@ -23,18 +23,19 @@ import { buildSolid } from '../insole/solidMesh';
 import type { PlantarSurface } from '../insole/generate';
 import { computeVertexNormals, signedVolume } from '../mesh/normals';
 import { rasterizeHighestSurface, signedDistance, sphericalDilate, sphericalErode } from './fields';
+import { estimateDorsum, heightFieldMesh } from './dorsum';
 import { appendLattice, concatMeshes, conformalLattice, emptyLattice, latticeToMesh, sampleGrid, surfaceLattice, type Lattice } from './lattice';
 import { FOOTWEAR_RULES, type FootwearKind, type FootwearParams } from './params';
 
 /** Per-scan data that doesn't depend on the design parameters (cached by the caller). */
 export interface FootData {
   surface: PlantarSurface;
-  /** World positions / indices of the aligned scan. */
+  /** Surface the shoe upper is laid over (world): the scan, or the estimated dorsum dome. */
   positions: Float32Array;
   indices: Uint32Array;
-  /** Outward vertex normals (world). */
+  /** Outward vertex normals of that surface (world). */
   normals: Float32Array;
-  /** Highest surface (dorsum), NaN outside the silhouette. */
+  /** Highest surface (dorsum, scanned or estimated), NaN outside the silhouette. */
   top: Float32Array;
   /**
    * Surface the footbed is offset from: the smoothed plantar surface, but never above the raw
@@ -43,16 +44,24 @@ export interface FootData {
   bed: Float32Array;
   /** Signed distance to the silhouette (mm, negative inside). */
   silhouetteSdf: Float32Array;
-  /** True when the scan has the top of the foot (needed for straps / uppers). */
+  /** True when the scan itself has the top of the foot. */
   hasDorsum: boolean;
-  /** +1 when the scan's triangles wind outward, −1 when inward. */
-  orientation: 1 | -1;
+  /** True when the top of the foot was estimated from the footprint (plantar / low scans). */
+  dorsumEstimated: boolean;
+  /** Foot surface used for clearance checks (scan + estimated dorsum), outward-facing. */
+  probePositions: Float32Array;
+  probeIndices: Uint32Array;
   bvh: MeshBVH;
 }
 
 export function prepareFootData(surface: PlantarSurface, positions: Float32Array, indices: Uint32Array): FootData {
   const g = surface.grid;
-  const top = rasterizeHighestSurface(positions, indices, surface.frame, g, 90);
+  // Floor = lowest scanned sole height (≈ 0 once the base plane is set, but don't rely on it).
+  const soleZ: number[] = [];
+  for (let k = 0; k < surface.z.length; k++) if (surface.covered[k]) soleZ.push(surface.z[k]);
+  soleZ.sort((x, y) => x - y);
+  const floor = soleZ.length ? soleZ[Math.floor(soleZ.length * 0.01)] : 0;
+  const top = rasterizeHighestSurface(positions, indices, surface.frame, g, floor + 90);
   const lowest = rasterizeLowestSurface(positions, indices, surface.frame, g, 90);
   const bed = surface.z.map((z, k) => (Number.isNaN(lowest[k]) ? z : Math.min(z, lowest[k])));
   const mask = new Uint8Array(top.length);
@@ -64,13 +73,41 @@ export function prepareFootData(surface: PlantarSurface, positions: Float32Array
   }
   heights.sort((x, y) => x - y);
   const hasDorsum = heights.length > 0 && heights[Math.floor(heights.length / 2)] > 25;
-  const orientation = signedVolume({ positions, indices }) < 0 ? -1 : 1;
-  let normals = computeVertexNormals({ positions, indices });
-  if (orientation < 0) normals = normals.map((v) => -v);
+  const silhouetteSdf = signedDistance(mask, g);
+
+  let upper: { positions: Float32Array; indices: Uint32Array; normals: Float32Array };
+  let probePositions = positions, probeIndices = indices;
+  if (hasDorsum) {
+    // Closed / full scan: orient it outward and use it for everything.
+    if (signedVolume({ positions, indices }) < 0) {
+      probeIndices = indices.slice();
+      for (let t = 0; t < probeIndices.length; t += 3) [probeIndices[t + 1], probeIndices[t + 2]] = [probeIndices[t + 2], probeIndices[t + 1]];
+    }
+    upper = { positions, indices: probeIndices, normals: computeVertexNormals({ positions, indices: probeIndices }) };
+  } else {
+    // Sole-only scan: estimate the top of the foot from the footprint; the scan still wins
+    // where it reaches higher (e.g. scans that capture the sides).
+    const est = estimateDorsum(mask, surface.z, g);
+    for (let k = 0; k < top.length; k++) if (mask[k]) top[k] = Math.max(top[k], est[k]);
+    const dome = heightFieldMesh(top, g, surface.frame);
+    upper = { positions: dome.positions, indices: dome.indices, normals: computeVertexNormals(dome) };
+    // Clearance checks use one closed shell: the dome on top, the scanned sole below and side
+    // walls along the footprint edge. The open scan itself would make inside/outside ambiguous
+    // where its cut edge meets the dome.
+    const combined = buildSolid(g, silhouetteSdf, fillMissing(top, g, 0), fillMissing(bed.map((z, k) => (mask[k] ? z : NaN)), g, 0), (a, b, z) => {
+      const [x, y] = frameToWorld(surface.frame, a, b);
+      return [x, y, z];
+    });
+    probePositions = combined.positions;
+    probeIndices = combined.indices;
+  }
   const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geom.setIndex(new THREE.BufferAttribute(indices, 1));
-  return { surface, positions, indices, normals, top, silhouetteSdf: signedDistance(mask, g), bed, hasDorsum, orientation, bvh: new MeshBVH(geom) };
+  geom.setAttribute('position', new THREE.BufferAttribute(probePositions, 3));
+  geom.setIndex(new THREE.BufferAttribute(probeIndices, 1));
+  return {
+    surface, ...upper, top, silhouetteSdf, bed, hasDorsum, dorsumEstimated: !hasDorsum,
+    probePositions, probeIndices, bvh: new MeshBVH(geom),
+  };
 }
 
 /**
@@ -79,25 +116,38 @@ export function prepareFootData(surface: PlantarSurface, positions: Float32Array
  */
 export function footProbe(foot: FootData) {
   const target = { point: new THREE.Vector3(), distance: 0, faceIndex: 0 };
-  const pt = new THREE.Vector3();
-  const P = foot.positions, I = foot.indices;
+  const pt = new THREE.Vector3(), tmp = new THREE.Vector3(), fn = new THREE.Vector3(), sum = new THREE.Vector3();
+  const P = foot.probePositions, I = foot.probeIndices;
+  const faceNormal = (f: number, out: THREE.Vector3) => {
+    const t = f * 3, A = I[t] * 3, B = I[t + 1] * 3, C = I[t + 2] * 3;
+    const e1x = P[B] - P[A], e1y = P[B + 1] - P[A + 1], e1z = P[B + 2] - P[A + 2];
+    const e2x = P[C] - P[A], e2y = P[C + 1] - P[A + 1], e2z = P[C + 2] - P[A + 2];
+    return out.set(e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x).normalize();
+  };
   return (x: number, y: number, z: number) => {
     pt.set(x, y, z);
     foot.bvh.closestPointToPoint(pt, target as never);
-    const q = target.point;
-    // outward face normal (positions are oriented so that the vertex normals point outward)
-    const t = target.faceIndex * 3, A = I[t] * 3, B = I[t + 1] * 3, C = I[t + 2] * 3;
-    const e1x = P[B] - P[A], e1y = P[B + 1] - P[A + 1], e1z = P[B + 2] - P[A + 2];
-    const e2x = P[C] - P[A], e2y = P[C + 1] - P[A + 1], e2z = P[C + 2] - P[A + 2];
-    let nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
-    const nl = Math.hypot(nx, ny, nz) || 1;
-    nx = (nx / nl) * foot.orientation;
-    ny = (ny / nl) * foot.orientation;
-    nz = (nz / nl) * foot.orientation;
+    const q = target.point.clone();
+    const d = target.distance;
     let dx = x - q.x, dy = y - q.y, dz = z - q.z;
-    const d = Math.hypot(dx, dy, dz);
-    const inside = dx * nx + dy * ny + dz * nz < 0;
-    if (d < 1e-6 || inside) [dx, dy, dz] = [nx, ny, nz];
+    // Outward normal at the nearest point (the probe mesh is wound outward). When that point is
+    // on an edge or corner, one face's normal can give the wrong side: average the normals of
+    // all faces touching it instead (pseudo-normal).
+    const n = faceNormal(target.faceIndex, fn).clone();
+    if (d > 1e-6 && Math.abs(dx * n.x + dy * n.y + dz * n.z) < 0.9 * d) {
+      sum.set(0, 0, 0);
+      const eps = 1e-3 + d * 1e-4;
+      foot.bvh.shapecast({
+        intersectsBounds: (box: THREE.Box3) => box.distanceToPoint(pt) <= d + eps,
+        intersectsTriangle: (tri: THREE.Triangle, i: number) => {
+          if (tri.closestPointToPoint(pt, tmp).distanceTo(pt) <= d + eps) sum.add(faceNormal(i, fn));
+          return false;
+        },
+      } as never);
+      if (sum.lengthSq() > 1e-12) n.copy(sum.normalize());
+    }
+    const inside = dx * n.x + dy * n.y + dz * n.z < 0;
+    if (d < 1e-6 || inside) [dx, dy, dz] = [n.x, n.y, n.z];
     else [dx, dy, dz] = [dx / d, dy / d, dz / d];
     return { x: q.x, y: q.y, z: q.z, dx, dy, dz, gap: inside ? -d : d };
   };
@@ -450,16 +500,16 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
 
   // --- chappal straps --------------------------------------------------------------------
   let upperClearance: { min: number; max: number } | null = null;
+  /** Measures the upper's strut midpoints (set by the shoe; run after the final node pass). */
+  let measureUpper: (() => void) | null = null;
   /** Lattice edges that are the solid collar rim (not lattice struts). */
   const collarEdges = new Set<number>();
-  if (!foot.hasDorsum) {
+  if (foot.dorsumEstimated) {
     warnings.push(
-      p.kind === 'shoe'
-        ? 'The scan has no top of the foot, so the shoe upper can’t be made – use a full foot scan. Only the sole is generated.'
-        : 'The scan has no top of the foot, so the straps can’t be fitted – use a full foot scan. Only the sole is generated.',
+      `The scan has no top of the foot, so the ${p.kind === 'shoe' ? 'upper is' : 'straps are'} fitted to an estimated foot shape (from the footprint and foot length). Check the fit, or use a full foot scan.`,
     );
   }
-  if (p.kind === 'chappal' && foot.hasDorsum) {
+  if (p.kind === 'chappal') {
     const t = p.strap.thickness;
     // Inner face of the strap: the dorsum offset by the clearance, plus a small margin where the
     // dorsum curves sharply (the 1 mm height map under-represents curved steep sides there).
@@ -475,15 +525,17 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     const strapBottom = new Float32Array(nodeCount);
     let medialSide: [number, number] = [0, 0], lateralSide: [number, number] = [0, 0];
     if (thong) {
-      const side = (frac: number, medial: boolean): [number, number] => {
-        const b = silBack + frac * footLen;
+      // The two arms come down to the medial and lateral sides at the level of the arch end
+      // (AE landmark; estimated just behind the 1st metatarsal head if it isn't placed).
+      const bArchEnd = frame.archEnd ? frame.archEnd[1] : b1 - 0.1 * footLen;
+      const side = (b: number, medial: boolean): [number, number] => {
         const j = Math.round((b - g.b0) / g.h);
         const lo = rowMin[j], hi = rowMax[j];
         const edge = frame.medialSign < 0 === medial ? lo : hi;
         return [edge + (edge < (lo + hi) / 2 ? -6 : 6), b];
       };
-      medialSide = side(0.5, true);
-      lateralSide = side(0.47, false);
+      medialSide = side(bArchEnd, true);
+      lateralSide = side(bArchEnd, false);
     }
     const bc = silBack + p.strap.position * footLen;
     for (let j = 0; j < g.ny; j++) {
@@ -514,7 +566,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   }
 
   // --- shoe upper ----------------------------------------------------------------------------
-  if (p.kind === 'shoe' && foot.hasDorsum) {
+  if (p.kind === 'shoe') {
     const bThroat = silBack + p.shoe.throat * footLen;
     const cut = (x: number, y: number) => {
       const [a, b] = worldToFrame(frame, x, y);
@@ -591,13 +643,37 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       for (const v of [pI, qI]) {
         if (tied.has(v) || !low(v)) continue;
         tied.add(v);
+        // Tie down into the outsole: straight down, or leaning out towards the sole's edge
+        // where the foot bulges below the node (e.g. the front of the toes); skipped if
+        // neither keeps the clearance.
+        const [x, y, z] = [N[3 * v], N[3 * v + 1], N[3 * v + 2]];
         const q = nodeInfo(v);
-        const zDown = sampleGrid(g, plateTop, q.a, q.b) + r;
-        if (N[3 * v + 2] - zDown < 1) continue;
-        N.push(N[3 * v], N[3 * v + 1], zDown);
-        lattice.edges.push(v, N.length / 3 - 1);
-        lattice.radii.push(r);
-        tieDown.add(lattice.radii.length - 1);
+        const out = probeFoot(x, y, z);
+        const hl = Math.hypot(out.dx, out.dy) || 1;
+        const [oa, ob] = worldToFrame(frame, x + out.dx / hl, y + out.dy / hl);
+        const da = oa - q.a, db = ob - q.b;
+        let ea = q.a, eb = q.b;
+        for (let s2 = 1; s2 <= 20 && sampleGrid(g, outlineSdf, q.a + da * s2, q.b + db * s2) < -(0.5 * p.wallThickness + r); s2++) {
+          ea = q.a + da * s2;
+          eb = q.b + db * s2;
+        }
+        const clears = (bx: number, by: number, bz: number) => {
+          for (const t of [0.15, 0.3, 0.45, 0.6, 0.75, 0.9]) {
+            if (probeFoot(x + (bx - x) * t, y + (by - y) * t, z + (bz - z) * t).gap - r < c - 0.03) return false;
+          }
+          return true;
+        };
+        for (const [a2, b2] of [[q.a, q.b], [ea, eb]]) {
+          const zDown = sampleGrid(g, plateTop, a2, b2) + r;
+          if (z - zDown < 1) break;
+          const [bx, by] = frameToWorld(frame, a2, b2);
+          if (!clears(bx, by, zDown)) continue;
+          N.push(bx, by, zDown);
+          lattice.edges.push(v, N.length / 3 - 1);
+          lattice.radii.push(r);
+          tieDown.add(lattice.radii.length - 1);
+          break;
+        }
       }
     }
     // The collar rim is thicker than the lattice: keep its surface at the clearance too, and
@@ -607,6 +683,22 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       const q = probeFoot(x, y, z);
       return [q.x + q.dx * (c + rad), q.y + q.dy * (c + rad), q.z + q.dz * (c + rad)];
     };
+    // Smooth the collar line along itself (it follows the lattice cells, so it zig-zags).
+    const collarNb = new Map<number, number[]>();
+    for (const e of collarEdges) {
+      const P = lattice.edges[2 * e], Q = lattice.edges[2 * e + 1];
+      collarNb.set(P, [...(collarNb.get(P) ?? []), Q]);
+      collarNb.set(Q, [...(collarNb.get(Q) ?? []), P]);
+    }
+    for (let it = 0; it < 8; it++) {
+      const next = new Map<number, [number, number, number]>();
+      for (const [v, nb] of collarNb) {
+        if (nb.length !== 2) continue;
+        const [m, n] = nb;
+        next.set(v, [0, 1, 2].map((k) => 0.5 * N[3 * v + k] + 0.25 * (N[3 * m + k] + N[3 * n + k])) as [number, number, number]);
+      }
+      for (const [v, pnt] of next) N.splice(3 * v, 3, ...pnt);
+    }
     for (const v of collarNodes) {
       const [x, y, z] = placeAt(N[3 * v], N[3 * v + 1], N[3 * v + 2], collarR);
       N[3 * v] = x;
@@ -640,16 +732,64 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     // Measured clearance at the strut midpoints of the upper (nodes are measured with the rest
     // below). Struts joining the thicker collar flare away from the foot by design: they count
     // for the minimum only, like the tie-down struts.
-    let lo = Infinity, hi = -Infinity;
-    for (let e = upperEdgeStart; e < lattice.radii.length; e++) {
-      const P = lattice.edges[2 * e], Q = lattice.edges[2 * e + 1];
-      const gap = midGap(e);
-      lo = Math.min(lo, gap);
-      const flare = !collarEdges.has(e) && (collarNodes.has(P) || collarNodes.has(Q));
-      if (!flare && !tieDown.has(e)) hi = Math.max(hi, gap);
-    }
-    if (Number.isFinite(lo)) upperClearance = { min: lo, max: hi };
+    measureUpper = () => {
+      // Split struts whose middle strays from the clearance (after the final node pass).
+      for (let pass = 0; pass < 4; pass++) {
+        let split = 0;
+        const count = lattice.radii.length;
+        for (let e = upperEdgeStart; e < count; e++) {
+          if (tieDown.has(e)) continue;
+          const P = lattice.edges[2 * e], Q = lattice.edges[2 * e + 1];
+          const len = Math.hypot(N[3 * P] - N[3 * Q], N[3 * P + 1] - N[3 * Q + 1], N[3 * P + 2] - N[3 * Q + 2]);
+          const gap = midGap(e);
+          const flare = !collarEdges.has(e) && (collarNodes.has(P) || collarNodes.has(Q));
+          if (len < 1.2 || (gap >= c - 0.07 && (gap <= c + 0.07 || flare))) continue;
+          const m = N.length / 3;
+          N.push(...placeAt((N[3 * P] + N[3 * Q]) / 2, (N[3 * P + 1] + N[3 * Q + 1]) / 2, (N[3 * P + 2] + N[3 * Q + 2]) / 2, lattice.radii[e]));
+          lattice.edges[2 * e + 1] = m;
+          lattice.edges.push(m, Q);
+          lattice.radii.push(lattice.radii[e]);
+          if (collarEdges.has(e)) {
+            collarEdges.add(lattice.radii.length - 1);
+            collarNodes.add(m);
+          }
+          split++;
+        }
+        if (!split) break;
+      }
+      let lo = Infinity, hi = -Infinity;
+      for (let e = upperEdgeStart; e < lattice.radii.length; e++) {
+        const P = lattice.edges[2 * e], Q = lattice.edges[2 * e + 1];
+        const gap = midGap(e);
+        lo = Math.min(lo, gap);
+        const flare = !collarEdges.has(e) && (collarNodes.has(P) || collarNodes.has(Q));
+        if (!flare && !tieDown.has(e)) hi = Math.max(hi, gap);
+      }
+      if (Number.isFinite(lo)) upperClearance = { min: lo, max: hi };
+    };
   }
+
+  // Final pass for everything above the footbed (upper, collar, side cage, tie-downs): push any
+  // node that is still closer than the clearance straight out again. Near sharp features of
+  // the foot surface, placing one node can change which surface is nearest to another.
+  {
+    const probe = footProbe(foot);
+    const Nn = lattice.nodes;
+    const rad = new Float32Array(Nn.length / 3);
+    lattice.edges.forEach((v, e) => (rad[v] = Math.max(rad[v], lattice.radii[e >> 1])));
+    for (let v = midsole.nodes.length / 3; v < Nn.length / 3; v++) {
+      if (!rad[v]) continue;
+      for (let it = 0; it < 4; it++) {
+        const q = probe(Nn[3 * v], Nn[3 * v + 1], Nn[3 * v + 2]);
+        if (q.gap - rad[v] >= c - 0.03) break;
+        Nn[3 * v] = q.x + q.dx * (c + rad[v]);
+        Nn[3 * v + 1] = q.y + q.dy * (c + rad[v]);
+        Nn[3 * v + 2] = q.z + q.dz * (c + rad[v]);
+      }
+    }
+  }
+
+  (measureUpper as (() => void) | null)?.();
 
   // --- checks ------------------------------------------------------------------------------
   let sMin = Infinity, sMax = -Infinity;
@@ -664,7 +804,9 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   const probe = footProbe(foot);
   const nodeR = new Float32Array(lattice.nodes.length / 3);
   lattice.edges.forEach((v, i) => (nodeR[v] = Math.max(nodeR[v], lattice.radii[i >> 1])));
-  let gMin = upperClearance?.min ?? Infinity, gMax = upperClearance?.max ?? -Infinity;
+  const uc = upperClearance as { min: number; max: number } | null;
+  let gMin = uc?.min ?? Infinity, gMax = uc?.max ?? -Infinity;
+
   const nodeGap = (v: number) => probe(lattice.nodes[3 * v], lattice.nodes[3 * v + 1], lattice.nodes[3 * v + 2]).gap - nodeR[v];
   for (let v = 0; v < nodeR.length; v++) if (nodeR[v] > 0) gMin = Math.min(gMin, nodeGap(v));
   for (const v of fittedNodes) if (nodeR[v] > 0) gMax = Math.max(gMax, nodeGap(v)); // unconnected nodes make no geometry

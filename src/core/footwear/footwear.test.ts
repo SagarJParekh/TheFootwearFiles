@@ -163,7 +163,7 @@ describe('footwear generator', () => {
     expect(minGap(foot, split, 3)).toBeGreaterThanOrEqual(1 - 0.03);
   });
 
-  it('shoe: lattice upper fitted to the foot with a collar opening, lattice side wall, rules met', () => {
+  it('shoe: enclosed lattice upper fitted to the foot with an ankle opening, lattice side wall, rules met', () => {
     const r = gen(() => {}, 'shoe');
     expect(r.kind).toBe('shoe');
     expect(r.parts.solids).toHaveLength(1); // outsole only – side wall and upper are lattice
@@ -172,13 +172,15 @@ describe('footwear generator', () => {
     expect(minGap(foot, r)).toBeGreaterThanOrEqual(1 - 0.01);
     // upper reaches over the forefoot dorsum, but not over the ankle (collar opening)
     const l = r.parts.lattice, f = foot.surface.frame;
-    let foreTop = -Infinity, heelTop = -Infinity;
+    let foreTop = -Infinity, midTop = -Infinity, heelTop = -Infinity;
     for (let v = 0; v < l.nodes.length / 3; v++) {
       const [a, b] = worldToFrame(f, l.nodes[3 * v], l.nodes[3 * v + 1]);
       if (Math.abs(a) < 15 && b > 150 && b < 170) foreTop = Math.max(foreTop, l.nodes[3 * v + 2]);
-      if (Math.abs(a) < 15 && b > 10 && b < 60) heelTop = Math.max(heelTop, l.nodes[3 * v + 2]);
+      if (Math.abs(a) < 15 && b > 115 && b < 130) midTop = Math.max(midTop, l.nodes[3 * v + 2]);
+      if (Math.abs(a) < 15 && b > 10 && b < 40) heelTop = Math.max(heelTop, l.nodes[3 * v + 2]); // ankle
     }
     expect(foreTop).toBeGreaterThan(35); // over the dorsum of the forefoot
+    expect(midTop).toBeGreaterThan(45); // and the midfoot: enclosed up to the ankle opening
     expect(heelTop).toBeLessThan(35); // opening over the heel/ankle: nothing above the footbed there
   });
 
@@ -191,12 +193,44 @@ describe('footwear generator', () => {
     expect(zMin(hex)).toBeCloseTo(zMin(flat), 4); // grooves go up into the sole, the base stays flat
   });
 
-  it('scans without the top of the foot: sole only, with a warning', () => {
+  it('thong: the Y-strap reaches the medial and lateral sides at the level of the arch end', () => {
+    const f = foot.surface.frame;
+    const legsAt = (r: FootwearResult) => {
+      // strap vertices low on the sides = where the arms come down to the sole
+      const P = r.parts.solids[2].positions, bs: number[] = [];
+      for (let i = 0; i < P.length; i += 3) if (P[i + 2] < 12) bs.push(worldToFrame(f, P[i], P[i + 1])[1]);
+      return bs.reduce((x, y) => x + y, 0) / bs.length;
+    };
+    const m = closedFoot(3);
+    for (const aeY of [135, 150]) {
+      const ff = prepareFootData(samplePlantarSurface(m.positions, m.indices, { ...landmarks(), archEnd: [-22, aeY, 1] }), m.positions, m.indices);
+      const p = defaultFootwearParams(6, 'chappal');
+      p.chappalStyle = 'thong';
+      const r = generateFootwear(ff, p);
+      const bAE = ff.surface.frame.archEnd![1];
+      expect(Math.abs(legsAt(r) - bAE)).toBeLessThan(12);
+    }
+  });
+
+  it('scans without the top of the foot: straps and upper on an estimated foot shape, rules met', () => {
     const m = plantarScan();
     const f = prepareFootData(samplePlantarSurface(m.positions, m.indices, landmarks()), m.positions, m.indices);
     expect(f.hasDorsum).toBe(false);
-    const r = generateFootwear(f, defaultFootwearParams(6, 'chappal'));
-    expect(r.parts.solids).toHaveLength(2);
-    expect(r.warnings.join(' ')).toMatch(/top of the foot/);
+    expect(f.dorsumEstimated).toBe(true);
+    for (const [kind, style] of [['chappal', 'slide'], ['chappal', 'thong'], ['shoe', 'slide']] as const) {
+      const p = defaultFootwearParams(6, kind);
+      p.chappalStyle = style;
+      const r = generateFootwear(f, p);
+      expect(r.warnings.join(' ')).toMatch(/estimated foot shape/);
+      expect(r.rules.every((x) => x.ok)).toBe(true);
+      if (kind === 'chappal') expect(r.parts.solids.length).toBe(style === 'slide' ? 3 : 4); // outsole, rim, strap (+ post)
+      else expect(r.strutCount).toBeGreaterThan(12000); // sole + enclosed upper
+    }
+    // the estimated dorsum is foot-shaped: highest over the instep, low at the toes
+    const g = f.surface.grid, fr = f.surface.frame;
+    const topAt = (b: number) => f.top[Math.round((b - g.b0) / g.h) * g.nx + Math.round((0 - g.a0) / g.h)];
+    expect(topAt(60)).toBeGreaterThan(55);
+    expect(topAt(60)).toBeGreaterThan(topAt(200) + 25);
+    expect(fr.origin).toBeDefined();
   });
 });

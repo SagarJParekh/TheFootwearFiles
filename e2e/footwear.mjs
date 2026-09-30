@@ -105,6 +105,30 @@ try {
   const bytes = await readFile(await d.path());
   const tris = bytes.readUInt32LE(80);
   check(/-merged\.stl$/.test(d.suggestedFilename()) && bytes.length === 84 + 50 * tris && tris > 10000, `merged download ${d.suggestedFilename()} (${tris} triangles)`);
+  // Sole-only (plantar) scan: straps and the upper are built on an estimated top of the foot
+  await page.goto('http://localhost:5199/');
+  await page.waitForFunction(() => window.__app?.landmarks);
+  await page.selectOption('select', 'foot-plantar.stl');
+  await page.click('[data-testid=scan-setup-ok]');
+  for (const [id, p] of [['heelCentre', [4, 38, 0.2]], ['met1Head', [-26, 182, 0.3]], ['met5Head', [44, 165, 0.3]], ['archEnd', [-22, 150, 1]]]) {
+    await page.evaluate(([id, p]) => window.__app.landmarks.placeLandmark(id, p), [id, p]);
+  }
+  await page.click('[data-testid=tab-insole]');
+  await page.check('[data-testid=type-footwear]');
+  await page.check('[data-testid=fw-kind-chappal]');
+  await page.click('[data-testid=create-footwear] + span');
+  await page.waitForFunction(() => window.__app.useStore.getState().footwear, null, { timeout: 90000 });
+  await settle();
+  s = await state();
+  check(s.warnings.some((w) => /estimated foot shape/.test(w)) && rulesOk(s), 'plantar scan: slide strap built on the estimated top of the foot, rules met');
+  await page.selectOption('select:has(option[value=splitToe])', 'thong');
+  await settle();
+  s = await state();
+  check(s.p.chappalStyle === 'thong' && rulesOk(s), 'plantar scan: thong Y-strap (anchored at the arch end), rules met');
+  await page.check('[data-testid=fw-kind-shoe]');
+  await settle();
+  s = await state();
+  check(s.kind === 'shoe' && s.struts > 12000 && rulesOk(s), `plantar scan: enclosed shoe upper (${s.struts} struts, clearance ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm)`);
   check(errors.length === 0, `no page errors ${errors.join('; ')}`);
 } catch (e) {
   console.error(e);
