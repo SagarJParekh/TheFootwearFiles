@@ -3,7 +3,8 @@ import { closedFoot, lowerLimbScan, plantarScan } from '../fixtures/footShapes';
 import { samplePlantarSurface } from '../insole/generate';
 import { worldToFrame } from '../insole/frame';
 import { analyzeMesh } from '../mesh/analyze';
-import { footProbe, generateFootwear, prepareFootData, type FootData, type FootwearResult } from './generate';
+import { footProbe, fuseFootwearSolids, generateFootwear, prepareFootData, type FootData, type FootwearResult } from './generate';
+import { signedVolume } from '../mesh/normals';
 import { conformalLattice, latticeToMesh } from './lattice';
 import { sphericalDilate, sphericalErode, signedDistance } from './fields';
 import { defaultFootwearParams, FOOTWEAR_RULES, normalizeFootwearParams, REFERENCE_DESIGNS, type DesignId, type FootwearParams } from './params';
@@ -323,6 +324,30 @@ describe('footwear generator', () => {
       for (const s of hi.parts.solids) expect(analyzeMesh(s).watertight && consistent(s), kind).toBe(true);
       expect(Math.abs(hi.length - std.length)).toBeLessThan(2);
     }
+  });
+
+  it('smooth fused joins: the solid parts become one closed surface with fillets, still clear of the foot', () => {
+    const r = gen();
+    const fused = fuseFootwearSolids(foot, r, 1.5, 1);
+    expect(analyzeMesh(fused).watertight && consistent(fused)).toBe(true);
+    expect(signedVolume(fused)).toBeGreaterThan(0);
+    // it covers the parts it was made from (sample the parts' vertices: inside or on the surface)
+    const fb = analyzeMesh(fused).bounds;
+    for (const m of r.parts.solids) {
+      const b = analyzeMesh(m).bounds;
+      for (let k = 0; k < 3; k++) {
+        expect(b.min[k]).toBeGreaterThan(fb.min[k] - 1.2);
+        expect(b.max[k]).toBeLessThan(fb.max[k] + 1.2);
+      }
+    }
+    // one piece, and more volume than the largest part alone (the strap and rim are joined)
+    const volumes = r.parts.solids.map((m) => signedVolume(m));
+    expect(signedVolume(fused)).toBeGreaterThan(Math.max(...volumes));
+    // nothing closer to the foot than the clearance
+    const probe = footProbe(foot);
+    let lo = Infinity;
+    for (let i = 0; i < fused.positions.length; i += 30) lo = Math.min(lo, probe(fused.positions[i], fused.positions[i + 1], fused.positions[i + 2]).gap);
+    expect(lo).toBeGreaterThanOrEqual(1.5 - 0.1);
   });
 
   it('the sole follows the footprint: it contains it with room for the wall, and is not much wider', () => {

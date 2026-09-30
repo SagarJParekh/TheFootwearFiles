@@ -34,6 +34,7 @@ import { appendLattice, concatMeshes, conformalLattice, emptyLattice, latticeToM
 import { archPanel, archSheet, fitArchHeight, rowExtent, sectionBetween, sectionLattice, smoothAbove, smoothEnvelope, footprintOutline, sweepRounded, type Section } from './shape';
 import { FOOTWEAR_RULES, type FootwearKind, type FootwearParams } from './params';
 import { MESH_DETAIL } from '../detail';
+import { fuseFootwear, type ImplicitSolid } from './fuse';
 
 /** Per-scan data that doesn't depend on the design parameters (cached by the caller). */
 export interface FootData {
@@ -185,7 +186,7 @@ export interface RuleCheck {
 export interface FootwearResult {
   mesh: MeshData;
   /** Closed solid parts + lattice (for merging into one watertight solid on export). */
-  parts: { solids: MeshData[]; lattice: Lattice };
+  parts: { solids: MeshData[]; lattice: Lattice; heightSolids?: HeightSolid[] };
   kind: FootwearKind;
   length: number;
   width: number;
@@ -370,6 +371,63 @@ function sideCage(
   return out;
 }
 
+/** A solid part that is a height field on the grid: inside where sdf < 0 and bottom < z < top. */
+export interface HeightSolid {
+  index: number;
+  sdf: Float32Array;
+  top: Float32Array;
+  bottom: Float32Array;
+}
+
+/**
+ * The solid parts smoothly fused into one watertight surface (fillets at every junction, like the
+ * reference designs), with the clearance rule re-applied to it. The lattice stays separate
+ * (it overlaps the fused solids, as before). Height-field parts (sole plate, rim) are fused from
+ * their fields (fast and exact), the other parts from their meshes.
+ */
+export function fuseFootwearSolids(foot: FootData, r: FootwearResult, clearance: number, voxel: number, blend = 2.5): MeshData {
+  const { frame, grid: g } = foot.surface;
+  const hs = r.parts.heightSolids ?? [];
+  const fieldIdx = new Set(hs.map((x) => x.index));
+  const implicit: ImplicitSolid[] = hs.map((x) => {
+    const m = r.parts.solids[x.index];
+    const box = new THREE.Box3().setFromArray(m.positions);
+    return {
+      box,
+      f: (px: number, py: number, pz: number) => {
+        const [a, b] = worldToFrame(frame, px, py);
+        return Math.max(sampleGrid(g, x.sdf, a, b), sampleGrid(g, x.bottom, a, b) - pz, pz - sampleGrid(g, x.top, a, b));
+      },
+    };
+  });
+  const meshes = r.parts.solids.filter((_, i) => !fieldIdx.has(i));
+  const fused = fuseFootwear({ solids: meshes, implicit, lattice: emptyLattice() }, { voxel, blendSolids: blend, blendLattice: 0.9 });
+  // fillets add a little material: keep the clearance to the foot
+  const probe = footProbe(foot);
+  let zLo = Infinity;
+  for (let k = 0; k < foot.bed.length; k++) if (Number.isFinite(foot.bed[k])) zLo = Math.min(zLo, foot.bed[k]);
+  const P = fused.positions;
+  for (let i = 0; i < P.length; i += 3) {
+    if (P[i + 2] < zLo - clearance - 1) continue;
+    // only near the foot: over its silhouette (+ margin) and not well below the sole or above the top
+    const [a, b] = worldToFrame(frame, P[i], P[i + 1]);
+    if (sampleGrid(g, foot.silhouetteSdf, a, b) > clearance + 3) continue;
+    // the toe post sits between the toes by design (it is not held to the clearance)
+    if (r.toePost && Math.hypot(a - r.toePost[0], b - r.toePost[1]) < 10) continue;
+    const zb = sampleGrid(g, foot.bed, a, b), zt = sampleGrid(g, foot.top, a, b);
+    if (Number.isFinite(zb) && P[i + 2] < zb - clearance - 3) continue;
+    if (Number.isFinite(zt) && P[i + 2] > zt + clearance + 3) continue;
+    for (let it = 0; it < 3; it++) {
+      const q = probe(P[i], P[i + 1], P[i + 2]);
+      if (q.gap >= clearance - 0.02) break;
+      P[i] = q.x + q.dx * (clearance + 0.02);
+      P[i + 1] = q.y + q.dy * (clearance + 0.02);
+      P[i + 2] = q.z + q.dz * (clearance + 0.02);
+    }
+  }
+  return fused;
+}
+
 export function generateFootwear(foot: FootData, p: FootwearParams): FootwearResult {
   const { surface } = foot;
   const { frame, grid: g } = surface;
@@ -528,6 +586,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   }
   const solids: MeshData[] = [];
   solids.push(buildSolid(g, outlineSdf, plateTop, Btread, toWorld));
+  const heightSolids: HeightSolid[] = [{ index: 0, sdf: outlineSdf, top: plateTop, bottom: Btread }];
   const scanProbe = footProbe(foot); // exact checks against the scan (height maps are approximate)
 
   // --- rim: a level, smooth line around the footbed (not following the foot) ----------------
@@ -579,7 +638,10 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       rimTop[k] = T[k] + 0.5 + (Math.max(top, T[k] + 0.5) - T[k] - 0.5) * smoothstep(1.6 + wall, 1.6 + wall + 6, slotDist[k]);
     }
   }
-  if (p.sideWall === 'solid') solids.push(keepClear(buildSolid(g, ringSdf, rimTop, Bwall, toWorld), scanProbe, c));
+  if (p.sideWall === 'solid') {
+    heightSolids.push({ index: solids.length, sdf: ringSdf, top: rimTop, bottom: Bwall });
+    solids.push(keepClear(buildSolid(g, ringSdf, rimTop, Bwall, toWorld), scanProbe, c));
+  }
 
   // Optional smooth footbed skin (solid) on the contoured footbed, over the lattice.
   const SKIN = 1.2;
@@ -956,7 +1018,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   const mesh = concatMeshes([...solids, latticeMesh]);
   return {
     mesh: makeMesh(mesh.positions, mesh.indices),
-    parts: { solids, lattice },
+    parts: { solids, lattice, heightSolids },
     kind: p.kind,
     length,
     width: wMax - wMin,

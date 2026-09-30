@@ -10,10 +10,12 @@ import { finishImport } from '../src/formats/finishImport';
 import { formatForFile } from '../src/formats/registry';
 import { parseObjModel, parseStlModel } from '../src/formats/workerParsers';
 import { samplePlantarSurface } from '../src/core/insole/generate';
-import { generateFootwear, prepareFootData } from '../src/core/footwear/generate';
+import { worldToFrame } from '../src/core/insole/frame';
+import { fuseFootwearSolids, generateFootwear, prepareFootData } from '../src/core/footwear/generate';
 import { concatMeshes, latticeToMesh } from '../src/core/footwear/lattice';
 import { defaultFootwearParams, type ChappalStyle } from '../src/core/footwear/params';
 import { makeMesh, type MeshData, type Vec3 } from '../src/core/types';
+import { analyzeMesh } from '../src/core/mesh/analyze';
 
 function stl(m: Pick<MeshData, 'positions' | 'indices'>): Buffer {
   const n = m.indices.length / 3, buf = Buffer.alloc(84 + 50 * n);
@@ -74,5 +76,16 @@ for (const st of styles) {
   console.log('  generate', Date.now() - t1, 'ms', r.mesh.indices.length / 3, 'tris');
   const m = concatMeshes([...r.parts.solids, latticeToMesh(r.parts.lattice, 6, true)]);
   writeFileSync(join(out, `${st}.stl`), stl(makeMesh(m.positions, m.indices)));
+  if (process.env.FUSE) {
+    const t2 = Date.now();
+    const f = fuseFootwearSolids(foot, r, p.clearance, Number(process.env.FUSE));
+    const st2 = analyzeMesh(f);
+    console.log('  fused', Date.now() - t2, 'ms', f.indices.length / 3, 'tris', st2.watertight ? 'watertight' : `NOT watertight (boundary ${st2.boundaryEdgeCount}, non-manifold ${st2.nonManifoldEdgeCount})`);
+    if (process.env.BOUNDARY && !st2.watertight) {
+      const { findBoundaryLoops } = await import('../src/core/mesh/holes');
+      for (const l of findBoundaryLoops(f)) console.log('   loop', l.edgeCount, 'edges at', l.centroid.map((v) => v.toFixed(1)).join(', '), 'frame', worldToFrame(foot.surface.frame, l.centroid[0], l.centroid[1]).map((v) => v.toFixed(1)).join(', '));
+    }
+    writeFileSync(join(out, `${st}-fused.stl`), stl(concatMeshes([f, latticeToMesh(r.parts.lattice, 6, true)])));
+  }
   console.log(st, `${r.length.toFixed(0)}×${r.width.toFixed(0)}`, r.rules.map((x) => `${x.ok ? 'ok' : 'FAIL'} ${x.value}`).join(' | '), r.upperGap ? `upper gap ${r.upperGap.min.toFixed(1)}–${r.upperGap.max.toFixed(1)}` : '');
 }

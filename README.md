@@ -262,6 +262,14 @@ Straps and wings can be **solid** (smooth, pillow edges) or a **lattice panel**:
 | Strap length on top / position / thickness (slide), wing width at the sole (thong) | 30–100 mm / 45–80 % / 2–8 mm, 25–80 mm | 70 / 66 % / 3, 55 |
 | Collar height / throat / collar rim (shoe) | 25–90 mm / 40–75 % / 2–4 mm | 45 / 45 % / 3 |
 
+**Smooth fused joins** (Finish & download): the reference designs are modelled as one continuous surface, with the straps growing out of the sole wall through rounded fillets. With this on, the solid parts (sole plate, rim, straps or wings, ridge, toe post) are fused the same way (`footwear/fuse.ts`):
+- Each part becomes a signed distance field. The sole plate and rim come straight from their height fields; the other parts use distance to their meshes, found with a BVH.
+- The parts are joined by a smooth union, which puts a 2.5 mm fillet at every junction.
+- The result is meshed with marching tetrahedra on a sparse grid, using a 0.8 / 0.5 / 0.35 mm voxel depending on the mesh detail.
+- It is always one watertight, consistently wound surface. The clearance rule is re-applied afterwards (fillets add a little material), and the toe post is excluded because it sits between the toes by design.
+
+The lattice (footbed, panels, upper) stays as struts. On a real scan it takes about 20–60 s and gives 1.5–4 million triangles, so switch it on when the design is final.
+
 **Mesh detail** (Finish & download): *Standard*, *High* or *Ultra*. It sets the surface grid of the sole, rim and footbed (1 / 0.5 / 0.35 mm), the roundness of the lattice struts (6 / 10 / 14 sides, also in the merged export) and the sampling of straps, wings and tubes (×1 / ×2 / ×3). On a real scan, *High* gives about 0.9–1.2 million triangles for the footwear and takes a few seconds longer.
 
 **Download:**

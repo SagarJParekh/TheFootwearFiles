@@ -28,6 +28,11 @@ export interface FootwearParams {
   design: DesignId;
   /** Mesh detail (surface grid, strut roundness, strap sampling). */
   detail: MeshDetail;
+  /**
+   * Smooth fused joins: the solid parts are fused into one surface with fillets at every junction
+   * (like the reference designs) instead of overlapping parts. Slower (tens of seconds).
+   */
+  smoothJoins: boolean;
   chappalStyle: ChappalStyle;
   shoeSizeUK: number;
   /** Gap between the foot and the footwear (mm) – design rule 1–2 mm. */
@@ -96,6 +101,7 @@ export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chap
     kind,
     design: kind === 'shoe' ? 'latticeSneaker' : 'classicSlide',
     detail: 'standard',
+    smoothJoins: false,
     chappalStyle: 'slide',
     shoeSizeUK,
     clearance: 1.5,
@@ -133,6 +139,7 @@ export function normalizeFootwearParams(raw: unknown): FootwearParams {
     sideWall: r.sideWall === 'solid' || r.sideWall === 'lattice' ? r.sideWall : d.sideWall,
     footbedSkin: typeof r.footbedSkin === 'boolean' ? r.footbedSkin : d.footbedSkin,
     detail: normalizeDetail(r.detail),
+    smoothJoins: typeof r.smoothJoins === 'boolean' ? r.smoothJoins : d.smoothJoins,
     design: typeof r.design === 'string' && (r.design === 'custom' || r.design in REFERENCE_DESIGNS) ? (r.design as DesignId) : d.design,
     strapPattern: r.strapPattern === 'lattice' || r.strapPattern === 'solid' ? r.strapPattern : d.strapPattern,
     upperPattern: r.upperPattern === 'diamond' || r.upperPattern === 'grid' ? r.upperPattern : d.upperPattern,

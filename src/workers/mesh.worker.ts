@@ -30,7 +30,8 @@ import type { ImportInfo } from '../core/units';
 import { generateInsole, samplePlantarSurface, type InsoleResult, type PlantarSurface } from '../core/insole/generate';
 import type { InsoleParams } from '../core/insole/params';
 import type { FrameLandmarks } from '../core/insole/frame';
-import { generateFootwear, prepareFootData, type FootData, type FootwearResult } from '../core/footwear/generate';
+import { fuseFootwearSolids, generateFootwear, prepareFootData, type FootData, type FootwearResult } from '../core/footwear/generate';
+import { concatMeshes, latticeToMesh } from '../core/footwear/lattice';
 import { mergeFootwear } from '../core/footwear/merge';
 import { MESH_DETAIL, type MeshDetail } from '../core/detail';
 import type { FootwearParams } from '../core/footwear/params';
@@ -61,10 +62,25 @@ function footData(mesh: MeshData, transform: RigidTransform, landmarks: FrameLan
   }
   return footCache.data;
 }
-let lastFootwear: { key: string; result: FootwearResult } | null = null;
+let lastFootwear: { key: string; result: FootwearResult; fused: MeshData | null } | null = null;
+/**
+ * The generated footwear. With smooth joins, the solid parts are replaced by one smoothly fused
+ * solid (fillets at every junction); the lattice is unchanged.
+ */
 function footwear(mesh: MeshData, transform: RigidTransform, landmarks: FrameLandmarks, params: FootwearParams): FootwearResult {
   const key = `${mesh.id}|${JSON.stringify(transform)}|${JSON.stringify(landmarks)}|${JSON.stringify(params)}`;
-  if (lastFootwear?.key !== key) lastFootwear = { key, result: generateFootwear(footData(mesh, transform, landmarks, params.detail), params) };
+  if (lastFootwear?.key !== key) {
+    const foot = footData(mesh, transform, landmarks, params.detail);
+    const result = generateFootwear(foot, params);
+    let fused: MeshData | null = null;
+    if (params.smoothJoins) {
+      fused = fuseFootwearSolids(foot, result, params.clearance, MESH_DETAIL[params.detail].fuseVoxel);
+      const all = concatMeshes([fused, latticeToMesh(result.parts.lattice, MESH_DETAIL[params.detail].strutSides)]);
+      result.mesh = makeMesh(all.positions, all.indices);
+      result.parts = { ...result.parts, solids: [fused] };
+    }
+    lastFootwear = { key, result, fused };
+  }
   return lastFootwear.result;
 }
 

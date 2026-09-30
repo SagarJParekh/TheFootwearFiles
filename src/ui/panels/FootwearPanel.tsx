@@ -164,6 +164,13 @@ export function FootwearPanel({ ready }: { ready: boolean }) {
           <div className="hint" style={{ marginTop: -4 }}>
             Off: the parts are exported as overlapping closed shells (fast; slicers join them). On: one watertight solid (can take a minute).
           </div>
+          <Field
+            label="Smooth fused joins (like the reference designs)"
+            right={<Switch checked={p.smoothJoins} onChange={(v) => updateFootwear('Smooth joins', (q) => ({ ...q, smoothJoins: v }))} testId="fw-smooth" />}
+          />
+          <div className="hint" style={{ marginTop: -4 }}>
+            Fuses the sole, rim, straps, ridge and post into one surface with rounded fillets at every junction. Takes 20–60 s; switch it on when the design is final.
+          </div>
           <SelectField<MeshDetail> label="Mesh detail (triangles)" value={p.detail} options={MESH_DETAIL_LABEL} onChange={(v) => updateFootwear('Mesh detail', (q) => ({ ...q, detail: v }))} testId="fw-detail" />
           {result && <div className="hint" style={{ marginTop: -4 }}>{(result.mesh.indices.length / 3).toLocaleString()} triangles</div>}
           <Field label={`Download ${p.kind === 'shoe' ? 'shoe' : 'chappal'}`}>
