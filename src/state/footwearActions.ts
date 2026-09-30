@@ -5,7 +5,7 @@
 import type { ProjectDocument } from '../core/document';
 import type { FrameLandmarks } from '../core/insole/frame';
 import { suggestShoeSize } from '../core/insole/params';
-import { defaultFootwearParams, type FootwearKind, type FootwearParams } from '../core/footwear/params';
+import { defaultFootwearParams, REFERENCE_DESIGNS, type DesignId, type FootwearKind, type FootwearParams } from '../core/footwear/params';
 import { meshWorker, withMesh } from '../workers/meshClient';
 import { setView, useStore, commit, beginGesture, updateLive, endGesture } from './store';
 import { insoleLandmarks } from './insoleActions';
@@ -47,12 +47,27 @@ export function setFootwearKind(kind: FootwearKind): void {
   set({ pendingFootwearKind: kind });
   const p = get().doc?.footwear;
   if (p && p.kind !== kind) {
-    const d = defaultFootwearParams(p.shoeSizeUK, kind);
-    // Kind-specific defaults (sole, rim, side wall, toe spring, allowance); the design rules stay as set.
-    updateFootwear(kind === 'shoe' ? 'Shoe' : 'Chappal', (q) => ({
-      ...q, kind, soleThickness: d.soleThickness, toeSpring: d.toeSpring, rimHeight: d.rimHeight, toeAllowance: d.toeAllowance, sideWall: d.sideWall,
-    }));
+    // Kind-specific defaults and that kind's default reference design; the design rules stay as set.
+    const design = defaultFootwearParams(p.shoeSizeUK, kind).design as Exclude<DesignId, 'custom'>;
+    updateFootwear(kind === 'shoe' ? 'Shoe' : 'Chappal', (q) => withDesign(q, design));
   }
+}
+
+/** Parameters `q` switched to the kind of reference design `id` and set from it. */
+function withDesign(q: FootwearParams, id: Exclude<DesignId, 'custom'>): FootwearParams {
+  const ref = REFERENCE_DESIGNS[id];
+  let base = q;
+  if (q.kind !== ref.kind) {
+    const d = defaultFootwearParams(q.shoeSizeUK, ref.kind);
+    base = { ...q, kind: ref.kind, soleThickness: d.soleThickness, toeSpring: d.toeSpring, rimHeight: d.rimHeight, toeAllowance: d.toeAllowance, sideWall: d.sideWall };
+  }
+  return { ...ref.set(base), design: id };
+}
+
+/** Sets the parameters from one of the reference designs (undoable). */
+export function applyFootwearDesign(id: Exclude<DesignId, 'custom'>): void {
+  set({ pendingFootwearKind: REFERENCE_DESIGNS[id].kind });
+  updateFootwear(`Design: ${REFERENCE_DESIGNS[id].label}`, (q) => withDesign(q, id));
 }
 
 export function updateFootwear(label: string, fn: (p: FootwearParams) => FootwearParams): void {

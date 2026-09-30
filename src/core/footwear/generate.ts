@@ -31,7 +31,7 @@ import { fillHoles } from '../mesh/fill/fillHoles';
 import { rasterizeHighestSurface, signedDistance, sphericalDilate, sphericalErode } from './fields';
 import { estimateDorsum } from './dorsum';
 import { appendLattice, concatMeshes, conformalLattice, emptyLattice, latticeToMesh, sampleGrid, type Lattice } from './lattice';
-import { archSheet, fitArchHeight, rowExtent, sectionBetween, sectionLattice, smoothEnvelope, standardOutline, sweepRounded, type Section } from './shape';
+import { archPanel, archSheet, fitArchHeight, rowExtent, sectionBetween, sectionLattice, smoothAbove, smoothEnvelope, footprintOutline, sweepRounded, type Section } from './shape';
 import { FOOTWEAR_RULES, type FootwearKind, type FootwearParams } from './params';
 
 /** Per-scan data that doesn't depend on the design parameters (cached by the caller). */
@@ -46,8 +46,10 @@ export interface FootData {
   bed: Float32Array;
   /** Signed distance to the silhouette (mm, negative inside). */
   silhouetteSdf: Float32Array;
-  /** Signed distance to the lower part of the foot seen from above (up to 20 mm above the floor). */
+  /** Signed distance to the lower part of the foot seen from above (up to 20 mm above the floor): the footprint. */
   lowSilhouetteSdf: Float32Array;
+  /** The same up to 35 mm above the floor: the widest part of the foot, without the ankle or leg. */
+  midSilhouetteSdf: Float32Array;
   /** True when the scan itself has the top of the foot. */
   hasDorsum: boolean;
   /** True when the top of the foot was estimated from the footprint (plantar / low scans). */
@@ -85,6 +87,10 @@ export function prepareFootData(surface: PlantarSurface, positions: Float32Array
   const lowMask = new Uint8Array(low.length);
   for (let k = 0; k < low.length; k++) lowMask[k] = Number.isNaN(low[k]) ? 0 : 1;
   const lowSilhouetteSdf = signedDistance(lowMask, g);
+  const mid = rasterizeHighestSurface(positions, indices, surface.frame, g, floor + 35);
+  const midMask = new Uint8Array(mid.length);
+  for (let k = 0; k < mid.length; k++) midMask[k] = Number.isNaN(mid[k]) ? 0 : 1;
+  const midSilhouetteSdf = signedDistance(midMask, g);
 
   let probePositions = positions, probeIndices = indices;
   if (hasDorsum) {
@@ -121,7 +127,7 @@ export function prepareFootData(surface: PlantarSurface, positions: Float32Array
   geom.setAttribute('position', new THREE.BufferAttribute(probePositions, 3));
   geom.setIndex(new THREE.BufferAttribute(probeIndices, 1));
   return {
-    surface, top, silhouetteSdf, lowSilhouetteSdf, bed, hasDorsum, dorsumEstimated: !hasDorsum,
+    surface, top, silhouetteSdf, lowSilhouetteSdf, midSilhouetteSdf, bed, hasDorsum, dorsumEstimated: !hasDorsum,
     probePositions, probeIndices, bvh: new MeshBVH(geom),
   };
 }
@@ -392,14 +398,21 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   if (!Number.isFinite(silBack)) throw new Error('The scan has no footprint – check the alignment and landmarks.');
   const footLen = silFront - silBack;
 
-  // --- standard outline ---------------------------------------------------------------------
-  // The sole spline, grown until it contains the lower part of the foot (what the rim could
-  // touch) plus the clearance and the rim wall, and the whole foot seen from above plus the
-  // clearance (so nothing overhangs the sole and straps land on the rim).
-  const contain = new Uint8Array(nodeCount);
-  for (let k = 0; k < nodeCount; k++) contain[k] = foot.lowSilhouetteSdf[k] < c + wall + 0.5 || foot.silhouetteSdf[k] < c + 0.5 ? 1 : 0;
-  const heelBack = silBack - c - wall - 1;
-  const { poly, sdf: stdSdf } = standardOutline(frame, g, heelBack, silFront + p.toeAllowance + c + wall + 1 - heelBack, contain);
+  // --- sole outline: the footprint grown, faired -------------------------------------------
+  // Like the reference soles: the footprint plus the clearance, the rim wall and a little room
+  // (more in front of the toes), and the widest part of the foot up to 35 mm above the floor plus
+  // the clearance. The ankle and leg of a full scan don't count.
+  const need = new Float32Array(nodeCount);
+  const bToes = (b1 + b5) / 2;
+  for (let j = 0; j < g.ny; j++) {
+    const b = g.b0 + j * g.h;
+    const extra = c + wall + 1.5 + p.toeAllowance * smoothstep(bToes, silFront, b);
+    for (let i = 0; i < g.nx; i++) {
+      const k = j * g.nx + i;
+      need[k] = Math.min(foot.lowSilhouetteSdf[k] - extra, foot.midSilhouetteSdf[k] - c - 0.5);
+    }
+  }
+  const { poly, sdf: stdSdf } = footprintOutline(g, need);
   const toePost = (): [number, number] => {
     // between the 1st and 2nd toes: 18 % across the MT line, ~9 % of the foot length distal of it
     const dA = a5 - a1, dB = b5 - b1, len = Math.hypot(dA, dB) || 1;
@@ -439,9 +452,10 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   const minStack = p.outsoleThickness + 2 * r + 1.5;
   /** Rounded-edge drop: how far a fillet of radius R lies below the flat, at distance x from the edge. */
   const drop = (x: number, R: number) => (x >= R || R <= 0 ? 0 : R - Math.sqrt(Math.max(0, R * R - (R - Math.max(0, x)) ** 2)));
-  const Rbottom = 3;
+  const Rbottom = 6;
   const B = new Float32Array(nodeCount); // flat base (+ toe spring)
-  const Bround = new Float32Array(nodeCount); // with the rounded bottom edge
+  const Bwall = new Float32Array(nodeCount); // with the rounded bottom edge (the rim wall's underside)
+  const Bround = new Float32Array(nodeCount); // the outsole's underside: the same, thinning out under the wall
   const Btread = new Float32Array(nodeCount);
   const plateTop = new Float32Array(nodeCount);
   for (let j = 0; j < g.ny; j++) {
@@ -452,7 +466,8 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       const a = g.a0 + i * g.h;
       B[k] = Math.min(baseZ + spring, T[k] - minStack);
       plateTop[k] = B[k] + p.outsoleThickness;
-      Bround[k] = B[k] + Math.min(p.outsoleThickness * 0.8, drop(-stdSdf[k], Rbottom));
+      Bwall[k] = B[k] + drop(-stdSdf[k], Rbottom);
+      Bround[k] = Math.min(Bwall[k], plateTop[k] - 0.4);
       const tread = p.tread !== 'none' && outlineSdf[k] < -4 ? treadGroove(p.tread, a, b) * smoothstep(-4, -7, outlineSdf[k]) : 0;
       Btread[k] = Bround[k] + Math.min(1, p.outsoleThickness * 0.45) * tread;
     }
@@ -462,13 +477,14 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   const scanProbe = footProbe(foot); // exact checks against the scan (height maps are approximate)
 
   // --- rim: a level, smooth line around the footbed (not following the foot) ----------------
-  // Per row, the highest footbed point near the edge, then a smooth upper envelope along the foot.
+  // Per row, the highest footbed point a little inside the footprint's edge (not up the steep side
+  // of the heel), then a smooth upper envelope along the foot.
   const rowEdge: number[] = [];
   for (let j = 0; j < g.ny; j++) {
     let m = -Infinity;
     for (let i = 0; i < g.nx; i++) {
       const k = j * g.nx + i;
-      if (outlineSdf[k] < 0 && outlineSdf[k] > -wall - 5) m = Math.max(m, T[k]);
+      if (outlineSdf[k] < 0 && foot.lowSilhouetteSdf[k] < -6 && foot.lowSilhouetteSdf[k] > -11) m = Math.max(m, T[k]);
     }
     rowEdge.push(m);
   }
@@ -481,8 +497,18 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     const sLen = (b - outBack) / (length || 1);
     // highest round the heel, lower along the sides, and (chappals) a toe bumper that turns up
     // round the front like the reference slides
-    return edgeLine[j] + p.rimHeight * (0.45 + 0.55 * smoothstep(0.65, 0.2, sLen)) + toeLip * smoothstep(0.86, 1, sLen);
+    return edgeLine[j] + p.rimHeight * (0.7 + 0.3 * smoothstep(0.65, 0.2, sLen)) + toeLip * smoothstep(0.86, 1, sLen);
   };
+  // Outside the area the foot rests on, the footbed curves up to the rim but never over it (the
+  // scan's sides rise steeply near the edge). Under the foot it keeps following the sole exactly.
+  for (let j = 0; j < g.ny; j++) {
+    const cap = rimZ(g.b0 + j * g.h) - 1.5;
+    for (let i = 0; i < g.nx; i++) {
+      const k = j * g.nx + i;
+      const f = smoothstep(-6, -2, foot.lowSilhouetteSdf[k]); // 0 under the foot, 1 outside it
+      if (f > 0 && T[k] > cap) T[k] -= (T[k] - cap) * f;
+    }
+  }
   const ringSdf = new Float32Array(nodeCount);
   const rimTop = new Float32Array(nodeCount);
   const Ro = Math.min(2.5, 0.45 * wall), Ri = Math.min(2, 0.4 * wall);
@@ -499,7 +525,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       rimTop[k] = T[k] + 0.5 + (Math.max(top, T[k] + 0.5) - T[k] - 0.5) * smoothstep(1.6 + wall, 1.6 + wall + 6, slotDist[k]);
     }
   }
-  if (p.sideWall === 'solid') solids.push(keepClear(buildSolid(g, ringSdf, rimTop, Bround, toWorld), scanProbe, c));
+  if (p.sideWall === 'solid') solids.push(keepClear(buildSolid(g, ringSdf, rimTop, Bwall, toWorld), scanProbe, c));
 
   // Optional smooth footbed skin (solid) on the contoured footbed, over the lattice.
   const SKIN = 1.2;
@@ -514,7 +540,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     const P = skin.positions, nTop = P.length / 6;
     for (let v = 0; v < nTop; v++) {
       const [a, b] = worldToFrame(frame, P[3 * v], P[3 * v + 1]);
-      const under = at(foot.silhouetteSdf, a, b) < -4;
+      const under = at(foot.lowSilhouetteSdf, a, b) < -4;
       for (let it = 0; it < 5; it++) {
         const gap = scanProbe(P[3 * v], P[3 * v + 1], P[3 * v + 2]).gap;
         const tooClose = gap < c - 0.02, tooFar = under && gap > c + 0.05;
@@ -545,7 +571,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   // the (open) top layer also moves up where smoothing left it further than the clearance.
   const underFoot = new Set(midsole.topNodes.filter((v) => {
     const [a, b] = worldToFrame(frame, midsole.nodes[3 * v], midsole.nodes[3 * v + 1]);
-    return sampleGrid(g, foot.silhouetteSdf, a, b) < -4; // under the foot, not the toe allowance / edge
+    return sampleGrid(g, foot.lowSilhouetteSdf, a, b) < -4; // on the footprint (the foot rests here), not the toe allowance / edge
   }));
   {
     const Nn = midsole.nodes;
@@ -611,19 +637,56 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
    * each just high enough to clear the foot, then smoothed along the foot (one flowing top line
    * and side bulge, not a copy of the foot).
    */
-  const archRows = (b0: number, b1: number, inset: number, extra: number, pExp: number): Section[] => {
+  const archRows = (b0: number, b1: number, inset: number, extra: number, pExp: number, bFit = b0, taper = 0.12): Section[] => {
+    // Only rows from bFit on are fitted around the foot; behind it the sheet only exists low down
+    // at the sides, so those rows keep the first fitted row's arch (a full scan's ankle and leg
+    // would otherwise blow them up).
     const raw: { b: number; ac: number; hw: number; bulge: number; zBase: number }[] = [];
     for (let b = b0; b <= b1 + 1e-6; b += 1) {
       const e = extentAt(b, inset);
-      if (e) raw.push({ b, ...e, bulge: Math.max(0, footHalfAt(b, e.ac) + c + 0.8 - e.hw), zBase: rimZ(b) - 2 });
+      if (e) raw.push({ b, ...e, bulge: Math.max(0, footHalfAt(Math.max(b, bFit), e.ac) + c + 0.8 - e.hw), zBase: rimZ(b) - 2 });
     }
     const bulge = smoothEnvelope(raw.map((row) => row.bulge), 12);
-    const req = raw.map((row, i) => fitArchHeight({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + bulge[i], zBase: row.zBase, p: pExp }, reqPts(row.b, extra), 12));
-    const hs = smoothEnvelope(req, 14);
-    return raw.map((row, i) => ({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + bulge[i], zBase: row.zBase, hs: hs[i], p: pExp }));
+    // crown over the highest part of the foot (the instep is medial of the middle), smoothed
+    const crownRaw = raw.map((row) => {
+      const pts = reqPts(Math.max(row.b, bFit), 0);
+      if (!pts.length) return row.ac;
+      const zMax = Math.max(...pts.map(([, z]) => z));
+      const hi = pts.filter(([, z]) => z > zMax - 6);
+      return hi.reduce((acc, [a]) => acc + a, 0) / hi.length;
+    });
+    const crown = crownRaw.map((_, i) => {
+      let acc = 0, wt = 0;
+      for (let q = -15; q <= 15; q++) {
+        const v = crownRaw[Math.min(raw.length - 1, Math.max(0, i + q))], w = Math.exp(-(q * q) / 50);
+        acc += v * w;
+        wt += w;
+      }
+      const row = raw[i];
+      return Math.min(row.ac + 0.35 * row.hw, Math.max(row.ac - 0.35 * row.hw, acc / wt));
+    });
+    const req = raw.map((row, i) => (row.b < bFit ? 0 : fitArchHeight({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + bulge[i], zBase: row.zBase, p: pExp, aTop: crown[i], taper }, reqPts(row.b, extra), 12)));
+    const first = req.findIndex((_, i) => raw[i].b >= bFit);
+    for (let i = 0; i < first; i++) req[i] = req[first];
+    const hs = smoothAbove(req, 8);
+    return raw.map((row, i) => ({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + bulge[i], zBase: row.zBase, hs: hs[i], p: pExp, aTop: crown[i], taper }));
   };
   /** Pillow edges: full thickness in the middle of the sheet, rounded off towards both edges. */
   const pillow = (t: number) => (s: number) => Math.max(0.7, t * Math.pow(Math.max(0, 1 - Math.abs(2 * s - 1) ** 6), 0.3));
+  /** A strap / wing sheet: smooth and solid, or an open lattice panel with a solid border. */
+  const addSheet = (rows: Section[], back: (u: number) => number, front: (u: number) => number, t: number) => {
+    if (p.strapPattern === 'lattice') {
+      const panel = archPanel({ rows, back, front, thickness: t, border: 7, cell: Math.max(7, p.cellSize * 1.4), radius: r, toWorld });
+      for (const m of panel.solids) {
+        strapSolids.push(solids.length);
+        solids.push(m);
+      }
+      appendLattice(lattice, panel.lattice);
+    } else {
+      strapSolids.push(solids.length);
+      solids.push(archSheet({ rows, back, front, thickness: pillow(t), toWorld }));
+    }
+  };
 
   if (p.kind === 'chappal' && !thong) {
     // Slide (like the reference slides): one wide vamp that grows out of the side walls. Its
@@ -633,17 +696,8 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     const bFront = Math.min(silBack + p.strap.position * footLen + w / 2, silFront - 18);
     const bBackTop = bFront - w;
     const bBackSide = Math.max(silBack + 0.22 * footLen, bBackTop - 0.9 * w);
-    const rows = archRows(bBackSide - 2, bFront + 2, wall / 2, 0.3, 2.6);
-    if (rows.length > 4) {
-      strapSolids.push(solids.length);
-      solids.push(archSheet({
-        rows,
-        back: (u) => bBackTop - (bBackTop - bBackSide) * Math.pow(1 - Math.sin(Math.PI * u), 0.7),
-        front: () => bFront,
-        thickness: pillow(t),
-        toWorld,
-      }));
-    }
+    const rows = archRows(bBackSide - 2, bFront + 2, wall / 2, 0.3, 2.3, bBackTop - 4);
+    if (rows.length > 4) addSheet(rows, (u) => bBackTop - (bBackTop - bBackSide) * Math.pow(1 - Math.sin(Math.PI * u), 0.7), () => bFront, t);
   }
 
   if (thong) {
@@ -658,16 +712,9 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     const bWin = Math.min(bArchEnd, bJ - 15); // front of the wings at the sole
     const bBackSide = Math.max(silBack + 0.2 * footLen, bWin - wing); // back of the wings at the sole
     const bBackTop = Math.min(bJ - 20, Math.max(bBackSide + 20, silBack + 0.5 * footLen)); // back of the wings on top
-    const rows = archRows(bBackSide - 2, bJ + 2, wall / 2, t / 2 + 0.3, 2.4);
+    const rows = archRows(bBackSide - 2, bJ + 2, wall / 2, t / 2 + 0.3, 2.3, bBackTop - 4);
     if (rows.length > 4) {
-      strapSolids.push(solids.length);
-      solids.push(archSheet({
-        rows,
-        back: (u) => bBackTop - (bBackTop - bBackSide) * Math.pow(1 - Math.sin(Math.PI * u), 0.7),
-        front: (u) => bWin + (bJ - bWin) * Math.pow(Math.sin(Math.PI * u), 2.5),
-        thickness: pillow(t),
-        toWorld,
-      }));
+      addSheet(rows, (u) => bBackTop - (bBackTop - bBackSide) * Math.pow(1 - Math.sin(Math.PI * u), 0.7), (u) => bWin + (bJ - bWin) * Math.pow(Math.sin(Math.PI * u), 1.4), t);
       // ridge: from the top of the wings forward and down to the post, above the foot
       const top = sectionBetween(rows, bJ - 3);
       const start: [number, number, number] = [top.ac, bJ - 3, top.zBase + top.hs + t / 2];
@@ -702,9 +749,10 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     const bThroat = silBack + p.shoe.throat * footLen;
     // top line: heel tab at the back, a dip under the ankle bones, then a rounded rise to the throat
     const bAnkle = silBack + 0.2 * footLen;
-    const collarZ = (b: number) => {
-      const rise = Math.max(0, 1 - Math.max(0, bThroat - b) / 35);
-      return rimZ(b) + p.shoe.collarHeight * (1 - 0.18 * Math.exp(-(((b - bAnkle) / 22) ** 2))) + 4 * smoothstep(silBack + 25, silBack, b) + 90 * (1 - Math.sqrt(1 - rise * rise));
+    let collarZ = (b: number) => {
+      // gentle rise over the last 60 mm to the throat, so the opening's front is a round U
+      const rise = smoothstep(bThroat - 60, bThroat + 5, b);
+      return rimZ(b) + p.shoe.collarHeight * (1 - 0.15 * Math.exp(-(((b - bAnkle) / 25) ** 2))) + 3 * smoothstep(silBack + 45, silBack, b) + 70 * rise * rise;
     };
     const opening = (b: number, z: number) => b < bThroat && z > collarZ(b);
     const step = p.cellSize * 0.866;
@@ -721,10 +769,15 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       row.req = fitArchHeight({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + bulge[i], zBase: row.zBase, p: 2.7 }, reqPts(row.b, r + 0.4, row.b < bThroat ? collarZ(row.b) : Infinity), 8);
       if (row.b < bThroat - 30) row.req = Math.max(row.req, p.shoe.collarHeight + 8); // heel counter up to the collar
     }
-    const hs = smoothEnvelope(rows.map((row) => row.req), w);
+    const hs = smoothAbove(rows.map((row) => row.req), Math.max(1, 8 / step));
     const sections = rows.map((row, i) => ({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + bulge[i], zBase: row.zBase, hs: hs[i], p: 2.7 }));
+    // Near the throat, cut at least 18 mm below the top of the upper, so the front of the opening
+    // is a wide round U (not a narrow slit that ends in a peak).
+    const topZ = (b: number) => { const sc = sectionBetween(sections, b); return sc.zBase + sc.hs; };
+    const collarZ0 = collarZ;
+    collarZ = (b: number) => Math.min(collarZ0(b), topZ(b) - 18 * smoothstep(bThroat - 70, bThroat - 20, b));
     // double-skin lattice (inner skin at the section, outer skin one shell further out)
-    const up = sectionLattice({ sections, cell: p.cellSize, radius: r, collarR: p.shoe.collarDiameter / 2, opening, collarZ, toWorld, shell: Math.max(2 * r + 1.5, 0.6 * p.cellSize) });
+    const up = sectionLattice({ sections, cell: p.cellSize, radius: r, collarR: p.shoe.collarDiameter / 2, opening, collarZ, toWorld, shell: Math.max(2 * r + 1.5, 0.6 * p.cellSize), pattern: p.upperPattern });
     upperStart = lattice.nodes.length / 3;
     const edgeBase = lattice.radii.length;
     appendLattice(lattice, up);
@@ -765,7 +818,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     const m = solids[skinSolid], P = m.positions;
     for (let i = 0; i < P.length / 2; i += 6) {
       const [a, b] = worldToFrame(frame, P[i], P[i + 1]);
-      if (at(foot.silhouetteSdf, a, b) >= -4) continue;
+      if (at(foot.lowSilhouetteSdf, a, b) >= -4) continue;
       const gap = scanProbe(P[i], P[i + 1], P[i + 2]).gap;
       fMin = Math.min(fMin, gap);
       fMax = Math.max(fMax, gap);

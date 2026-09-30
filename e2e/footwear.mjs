@@ -72,11 +72,26 @@ try {
     check(s.p.chappalStyle === style && !s.err && s.rules.every((r) => r.ok), `${style}: generated, rules met${s.warnings.length ? ` (note: ${s.warnings[0].slice(0, 50)}…)` : ''}`);
   }
 
+  // Reference designs (presets modelled on the team's reference STLs)
+  await page.selectOption('[data-testid=fw-design]', 'latticeSlide');
+  await settle();
+  s = await state();
+  check(s.p.design === 'latticeSlide' && s.p.chappalStyle === 'slide' && s.p.strapPattern === 'lattice' && rulesOk(s), `reference design "Lattice-vamp slide": lattice strap panel, rules met (${s.struts} struts)`);
+  await page.selectOption('[data-testid=fw-design]', 'splitToeThong');
+  await settle();
+  s = await state();
+  check(s.p.chappalStyle === 'splitToe' && rulesOk(s), 'reference design "Split-toe lattice thong", rules met');
+
   // Shoe
   await page.check('[data-testid=fw-kind-shoe]');
   await settle();
   s = await state();
   check(s.kind === 'shoe' && s.p.sideWall === 'lattice' && s.upperGap?.min >= 0.97 && rulesOk(s), `shoe: double-skin lattice upper on a lattice sole wall, rules met (footbed ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm, upper ${s.upperGap?.min.toFixed(1)}–${s.upperGap?.max.toFixed(1)} mm from the foot)`);
+  await page.selectOption('[data-testid=fw-design]', 'knitSlipOn');
+  await settle();
+  s = await state();
+  check(s.kind === 'shoe' && s.p.upperPattern === 'diamond' && rulesOk(s), `reference design "Knit slip-on": diamond lattice upper, rules met (${s.struts} struts)`);
+  await page.keyboard.press('Control+z');
   await page.keyboard.press('Control+z');
   await settle();
   s = await state();

@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { UK_SIZES, insoleLengthMm } from '../../core/insole/params';
 import {
-  CHAPPAL_STYLE_LABEL, FOOTWEAR_RANGES as R, FOOTWEAR_RULES, SIDE_WALL_LABEL, TREAD_LABEL,
-  type ChappalStyle, type FootwearKind, type FootwearParams, type SideWall, type TreadPattern,
+  CHAPPAL_STYLE_LABEL, FOOTWEAR_RANGES as R, FOOTWEAR_RULES, REFERENCE_DESIGNS, SIDE_WALL_LABEL, STRAP_PATTERN_LABEL, TREAD_LABEL, UPPER_PATTERN_LABEL,
+  type ChappalStyle, type DesignId, type FootwearKind, type FootwearParams, type SideWall, type StrapPattern, type TreadPattern, type UpperPattern,
 } from '../../core/footwear/params';
-import { exportFootwearStl, footwearGesture, setFootwearEnabled, setFootwearKind, updateFootwear } from '../../state/footwearActions';
+import { applyFootwearDesign, exportFootwearStl, footwearGesture, setFootwearEnabled, setFootwearKind, updateFootwear } from '../../state/footwearActions';
 import { useStore } from '../../state/store';
 import { Panel, downloadBlob } from '../common';
 import { ScanDisplayToggle } from '../ScanDisplayToggle';
@@ -17,7 +17,7 @@ function Slider(props: { label: string; range: (typeof R)[keyof typeof R]; value
 }
 
 const KIND_INFO: Record<FootwearKind, { title: string; sub: string }> = {
-  chappal: { title: 'Chappal', sub: 'Lattice footbed · solid strap' },
+  chappal: { title: 'Chappal', sub: 'Slides & thongs · lattice footbed' },
   shoe: { title: 'Shoe', sub: 'Double-skin lattice upper' },
 };
 
@@ -47,6 +47,25 @@ export function FootwearPanel({ ready }: { ready: boolean }) {
             </label>
           ))}
         </div>
+        {p && (
+          <Field label="Reference design">
+            <select
+              value={p.design}
+              data-testid="fw-design"
+              onChange={(e) => e.target.value !== 'custom' && applyFootwearDesign(e.target.value as Exclude<DesignId, 'custom'>)}
+            >
+              {(Object.keys(REFERENCE_DESIGNS) as Exclude<DesignId, 'custom'>[])
+                .filter((id) => REFERENCE_DESIGNS[id].kind === p.kind)
+                .map((id) => (
+                  <option key={id} value={id}>
+                    {REFERENCE_DESIGNS[id].label} (like {REFERENCE_DESIGNS[id].like})
+                  </option>
+                ))}
+              {p.design === 'custom' && <option value="custom">Custom</option>}
+            </select>
+            <div className="hint">Modelled on your reference designs; choosing one sets the style, sole, rim, strap and lattice below.</div>
+          </Field>
+        )}
         {p && p.kind === 'chappal' && (
           <SelectField<ChappalStyle>
             label="Chappal style"
@@ -120,11 +139,13 @@ export function FootwearPanel({ ready }: { ready: boolean }) {
               ) : (
                 <Slider label="Wing width (where it meets the sole)" range={R.thongArmWidth} value={p.thongArmWidth} set={(q, v) => ({ ...q, thongArmWidth: v })} />
               )}
+              <SelectField<StrapPattern> label={p.chappalStyle === 'slide' ? 'Strap' : 'Wings'} value={p.strapPattern} options={STRAP_PATTERN_LABEL} onChange={(v) => updateFootwear('Strap pattern', (q) => ({ ...q, strapPattern: v }))} />
               <Slider label="Strap thickness" range={R.strapThickness} value={p.strap.thickness} set={(q, v) => ({ ...q, strap: { ...q.strap, thickness: v } })} />
             </>
           ) : (
             <>
               <div className="field-group-label">Upper</div>
+              <SelectField<UpperPattern> label="Upper lattice" value={p.upperPattern} options={UPPER_PATTERN_LABEL} onChange={(v) => updateFootwear('Upper pattern', (q) => ({ ...q, upperPattern: v }))} />
               <Slider label="Collar height (above the footbed)" range={R.collarHeight} value={p.shoe.collarHeight} set={(q, v) => ({ ...q, shoe: { ...q.shoe, collarHeight: v } })} />
               <Slider label="Throat (opening ends, fraction of length)" range={R.throat} value={p.shoe.throat} set={(q, v) => ({ ...q, shoe: { ...q.shoe, throat: v } })} />
               <Slider label="Collar rim diameter (solid)" range={R.collarDiameter} value={p.shoe.collarDiameter} set={(q, v) => ({ ...q, shoe: { ...q.shoe, collarDiameter: v } })} />

@@ -14,9 +14,17 @@ export type FootwearKind = 'shoe' | 'chappal';
 export type ChappalStyle = 'slide' | 'thong' | 'splitToe';
 export type TreadPattern = 'none' | 'hexagon' | 'diamond' | 'waves';
 export type SideWall = 'solid' | 'lattice';
+/** Chappal straps / wings: a smooth solid sheet, or an open lattice panel with a solid border. */
+export type StrapPattern = 'solid' | 'lattice';
+/** Shoe upper lattice: triangulated grid, or diamonds (a knit look). */
+export type UpperPattern = 'grid' | 'diamond';
+/** Presets modelled on the team's reference designs (see REFERENCE_DESIGNS). */
+export type DesignId = 'custom' | 'classicSlide' | 'latticeSlide' | 'sleekSlide' | 'splitToeThong' | 'latticeThong' | 'latticeSneaker' | 'knitSlipOn';
 
 export interface FootwearParams {
   kind: FootwearKind;
+  /** The reference design the parameters were last set from ('custom' = none). */
+  design: DesignId;
   chappalStyle: ChappalStyle;
   shoeSizeUK: number;
   /** Gap between the foot and the footwear (mm) – design rule 1–2 mm. */
@@ -46,6 +54,10 @@ export interface FootwearParams {
    * its centre as a fraction of the foot length from the heel (the sides sweep further back).
    */
   strap: { width: number; thickness: number; position: number };
+  /** Straps / wings: solid, or a lattice panel with a solid border. */
+  strapPattern: StrapPattern;
+  /** Shoe upper lattice pattern. */
+  upperPattern: UpperPattern;
   /** Thong / split-toe: width of each strap wing where it grows out of the sole wall (mm). */
   thongArmWidth: number;
   /** Shoe upper: collar height above the footbed, throat position (fraction of length), collar rim diameter. */
@@ -79,23 +91,26 @@ export const FOOTWEAR_RANGES = {
 export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chappal'): FootwearParams {
   return {
     kind,
+    design: kind === 'shoe' ? 'latticeSneaker' : 'classicSlide',
     chappalStyle: 'slide',
     shoeSizeUK,
     clearance: 1.5,
     strutDiameter: 1.5,
     cellSize: 6,
-    soleThickness: kind === 'shoe' ? 10 : 12,
+    soleThickness: kind === 'shoe' ? 9 : 10,
     outsoleThickness: 2.5,
-    toeSpring: kind === 'shoe' ? 8 : 5,
+    toeSpring: 8,
     rimHeight: kind === 'shoe' ? 8 : 10,
     wallThickness: 2.5,
     sideWall: kind === 'shoe' ? 'lattice' : 'solid',
     footbedSkin: false,
     toeAllowance: kind === 'shoe' ? 3 : 8,
     tread: 'hexagon',
-    strap: { width: 70, thickness: 3, position: 0.66 },
+    strap: { width: 75, thickness: 3, position: 0.66 },
+    strapPattern: 'solid',
+    upperPattern: 'grid',
     thongArmWidth: 55,
-    shoe: { collarHeight: 45, throat: 0.45, collarDiameter: 3 },
+    shoe: { collarHeight: 55, throat: 0.45, collarDiameter: 3 },
   };
 }
 
@@ -113,6 +128,9 @@ export function normalizeFootwearParams(raw: unknown): FootwearParams {
     tread: ['none', 'hexagon', 'diamond', 'waves'].includes(r.tread) ? r.tread : d.tread,
     sideWall: r.sideWall === 'solid' || r.sideWall === 'lattice' ? r.sideWall : d.sideWall,
     footbedSkin: typeof r.footbedSkin === 'boolean' ? r.footbedSkin : d.footbedSkin,
+    design: typeof r.design === 'string' && (r.design === 'custom' || r.design in REFERENCE_DESIGNS) ? (r.design as DesignId) : d.design,
+    strapPattern: r.strapPattern === 'lattice' || r.strapPattern === 'solid' ? r.strapPattern : d.strapPattern,
+    upperPattern: r.upperPattern === 'diamond' || r.upperPattern === 'grid' ? r.upperPattern : d.upperPattern,
     clearance: clampTo(r.clearance, R.clearance, d.clearance),
     strutDiameter: clampTo(r.strutDiameter, R.strutDiameter, d.strutDiameter),
     cellSize: clampTo(r.cellSize, R.cellSize, d.cellSize),
@@ -144,3 +162,42 @@ export const CHAPPAL_STYLE_LABEL: Record<ChappalStyle, string> = {
 };
 export const SIDE_WALL_LABEL: Record<SideWall, string> = { solid: 'Solid wall', lattice: 'Lattice (open cage)' };
 export const TREAD_LABEL: Record<TreadPattern, string> = { none: 'None', hexagon: 'Hexagon', diamond: 'Diamond', waves: 'Waves' };
+
+export const STRAP_PATTERN_LABEL: Record<StrapPattern, string> = { solid: 'Solid (smooth)', lattice: 'Lattice panel (open, solid border)' };
+export const UPPER_PATTERN_LABEL: Record<UpperPattern, string> = { grid: 'Grid (triangles, braced)', diamond: 'Diamond (knit look)' };
+
+/**
+ * Reference designs: parameter sets modelled on the team's reference STLs (measured sole and rim
+ * heights, strap coverage and thickness, lattice pattern, tread). Choosing one sets these
+ * parameters; everything can still be adjusted afterwards.
+ */
+export const REFERENCE_DESIGNS: Record<Exclude<DesignId, 'custom'>, { kind: FootwearKind; label: string; like: string; set: (p: FootwearParams) => FootwearParams }> = {
+  classicSlide: {
+    kind: 'chappal', label: 'Classic slide', like: 'Parth, Atit',
+    set: (p) => ({ ...p, chappalStyle: 'slide', strapPattern: 'solid', soleThickness: 11, rimHeight: 10, tread: 'hexagon', toeAllowance: 8, strap: { ...p.strap, width: 75, thickness: 3, position: 0.66 } }),
+  },
+  latticeSlide: {
+    kind: 'chappal', label: 'Lattice-vamp slide', like: 'Rushik, Atheka, Anmol',
+    set: (p) => ({ ...p, chappalStyle: 'slide', strapPattern: 'lattice', soleThickness: 11, rimHeight: 10, tread: 'diamond', toeAllowance: 8, strap: { ...p.strap, width: 80, thickness: 3.5, position: 0.66 } }),
+  },
+  sleekSlide: {
+    kind: 'chappal', label: 'Sleek low slide', like: 'Jigar',
+    set: (p) => ({ ...p, chappalStyle: 'slide', strapPattern: 'solid', soleThickness: 8, rimHeight: 8, tread: 'hexagon', toeAllowance: 6, strap: { ...p.strap, width: 70, thickness: 2.5, position: 0.66 } }),
+  },
+  splitToeThong: {
+    kind: 'chappal', label: 'Split-toe lattice thong', like: 'Aashay',
+    set: (p) => ({ ...p, chappalStyle: 'splitToe', strapPattern: 'lattice', soleThickness: 9, rimHeight: 6, tread: 'diamond', toeAllowance: 6, thongArmWidth: 80, strap: { ...p.strap, thickness: 3.5 } }),
+  },
+  latticeThong: {
+    kind: 'chappal', label: 'Lattice thong', like: 'Saagr',
+    set: (p) => ({ ...p, chappalStyle: 'thong', strapPattern: 'lattice', soleThickness: 9, rimHeight: 7, tread: 'waves', toeAllowance: 6, thongArmWidth: 75, strap: { ...p.strap, thickness: 3.5 } }),
+  },
+  latticeSneaker: {
+    kind: 'shoe', label: 'Lattice sneaker', like: 'Shoes, Sagar_Shoes_red',
+    set: (p) => ({ ...p, upperPattern: 'grid', sideWall: 'lattice', cellSize: 7, soleThickness: 9, tread: 'hexagon', shoe: { ...p.shoe, collarHeight: 60, throat: 0.45 } }),
+  },
+  knitSlipOn: {
+    kind: 'shoe', label: 'Knit slip-on', like: 'Left/Right shoe_v1, sagar shoes',
+    set: (p) => ({ ...p, upperPattern: 'diamond', sideWall: 'lattice', cellSize: 6, soleThickness: 9, tread: 'diamond', shoe: { ...p.shoe, collarHeight: 55, throat: 0.45 } }),
+  },
+};

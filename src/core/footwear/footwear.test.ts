@@ -6,7 +6,7 @@ import { analyzeMesh } from '../mesh/analyze';
 import { footProbe, generateFootwear, prepareFootData, type FootData, type FootwearResult } from './generate';
 import { conformalLattice, latticeToMesh } from './lattice';
 import { sphericalDilate, sphericalErode, signedDistance } from './fields';
-import { defaultFootwearParams, FOOTWEAR_RULES, normalizeFootwearParams, type FootwearParams } from './params';
+import { defaultFootwearParams, FOOTWEAR_RULES, normalizeFootwearParams, REFERENCE_DESIGNS, type DesignId, type FootwearParams } from './params';
 import type { Grid } from '../insole/heightfield';
 import { makeMesh } from '../types';
 
@@ -291,6 +291,47 @@ describe('footwear generator', () => {
       const r = generateFootwear(ff, p);
       const bAE = ff.surface.frame.archEnd![1];
       expect(Math.abs(legsAt(r) - bAE)).toBeLessThan(6);
+    }
+  });
+
+  it('reference designs: every preset generates within the design rules, with closed solid parts', () => {
+    for (const [id, ref] of Object.entries(REFERENCE_DESIGNS)) {
+      const p = { ...ref.set(defaultFootwearParams(6, ref.kind)), design: id as DesignId };
+      const r = generateFootwear(foot, p);
+      expect(r.kind, id).toBe(ref.kind);
+      expect(r.rules.every((x) => x.ok), `${id}: ${r.rules.map((x) => x.value).join(' | ')}`).toBe(true);
+      for (const m of r.parts.solids) expect(analyzeMesh(m).watertight && consistent(m), id).toBe(true);
+    }
+    // lattice straps: an open panel (border solids + struts) instead of one solid sheet
+    const solid = gen((p) => (p.strapPattern = 'solid')), panel = gen((p) => (p.strapPattern = 'lattice'));
+    expect(panel.parts.solids.length).toBe(solid.parts.solids.length + 3);
+    expect(panel.strutCount).toBeGreaterThan(solid.strutCount + 100);
+    // diamond shoe uppers: no struts along the sections, so fewer struts than the grid
+    const grid = gen((p) => (p.upperPattern = 'grid'), 'shoe'), diamond = gen((p) => (p.upperPattern = 'diamond'), 'shoe');
+    expect(diamond.strutCount).toBeLessThan(grid.strutCount);
+    expect(diamond.rules.every((x) => x.ok)).toBe(true);
+  });
+
+  it('the sole follows the footprint: it contains it with room for the wall, and is not much wider', () => {
+    const r = gen();
+    const sole = r.parts.solids[0].positions, f = foot.surface.frame, g = foot.surface.grid;
+    // widest point of the sole per 10 mm band along the foot vs the footprint there (heel to ball;
+    // in front of that the toe allowance adds room on purpose)
+    for (let b = 20; b <= 180; b += 10) {
+      let sLo = Infinity, sHi = -Infinity, fLo = Infinity, fHi = -Infinity;
+      for (let i = 0; i < sole.length; i += 3) {
+        const [a, bb] = worldToFrame(f, sole[i], sole[i + 1]);
+        if (Math.abs(bb - b) < 1) { sLo = Math.min(sLo, a); sHi = Math.max(sHi, a); }
+      }
+      for (let i = 0; i < g.nx; i++) {
+        const k = Math.round((b - g.b0) / g.h) * g.nx + i;
+        if (foot.lowSilhouetteSdf[k] < 0) { fLo = Math.min(fLo, g.a0 + i * g.h); fHi = Math.max(fHi, g.a0 + i * g.h); }
+      }
+      if (!Number.isFinite(fLo)) continue;
+      expect(sLo, `b=${b}`).toBeLessThan(fLo - 3);
+      expect(sHi, `b=${b}`).toBeGreaterThan(fHi + 3);
+      // (margins of 2 × 5.5 mm, plus where the foot bulges wider than its footprint just above the floor)
+      expect(sHi - sLo - (fHi - fLo), `b=${b}`).toBeLessThan(35);
     }
   });
 

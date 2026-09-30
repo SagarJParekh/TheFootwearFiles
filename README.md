@@ -21,6 +21,7 @@ npm run dev          # http://localhost:5173
 | `npm run e2e` | Browser tests in headless Chromium via Playwright. `e2e/smoke.mjs` runs load → landmark → fill → cut → undo/redo → export. `e2e/formats.mjs` imports the same foot in every format and checks size, orientation and units |
 | `npm run fixtures` | Regenerates the sample STLs in `public/samples/` and the per-format fixtures in `fixtures/formats/` (`-- --large` also writes a 1.3M-triangle sphere) |
 | `npx tsx scripts/footwear-preview.ts <dir> [slide thong splitToe shoe]` | Writes the generated footwear for the synthetic foot as STL files (for checking designs outside the app) |
+| `npx tsx scripts/scan-preview.ts <scan.obj/.stl> <dir> [turnDeg] [styles…]` | The same for a real scan lying on the floor (heel and metatarsal landmarks picked automatically from the sole) |
 
 To try the app without a real scan, use the **Samples** menu:
 
@@ -206,16 +207,30 @@ The shapes follow the reference designs (the team's slides, thongs and lattice s
 The panel also shows how far the straps or upper are from the foot. As standard shapes, they are close at the tightest point and further elsewhere.
 
 **Sole (both kinds):**
-- **Outline:** a sole spline with last-bottom proportions (narrow rounded heel, waist, ball widths from M1/M5, rounded toe leaning towards the big toe). Each of its control points grows on its own until the outline contains the lower part of the foot plus the clearance and the rim wall, and the whole foot seen from above plus the clearance. The outline keeps a foot shape (it doesn't just scale up), and nothing overhangs the sole.
+- **Outline:** follows the foot, like the reference soles. It is the footprint (the foot up to 20 mm above the floor) grown by the clearance, the rim wall and 1.5 mm, with the toe allowance added towards the toes. It also contains the widest part of the foot up to 35 mm above the floor, plus the clearance. The ankle and leg of a full scan don't count. The boundary is traced by rays from the footprint's centre and faired: smoothed along the curve, but never cut back inside that region.
 - **Outsole:** a solid plate on a flat base, with a rounded bottom edge, toe spring and an optional tread (hexagon / diamond / waves).
-- **Rim:** a thin solid wall (2.5 mm by default) with a **level, smooth top line** (not following the foot), highest round the heel, with a rounded bead on top. On chappals it turns up round the toes (toe bumper). It can be switched to an open lattice cage (the default for shoes).
+- **Rim:** a thin solid wall (2.5 mm by default) with a **level, smooth top line** (not following the foot). It is measured from the footbed 6–11 mm inside the footprint's edge, not up the steep side of the heel, and is highest round the heel. It has a rounded bead on top and a 6 mm rounded bottom edge, and on chappals it turns up round the toes (toe bumper). It can be switched to an open lattice cage (the default for shoes). Outside the footprint the footbed curves up to the rim but never over it.
 - **Footbed:** the top of a conformal tetrahedral lattice, contoured to the foot at the clearance. Optionally it gets a **smooth solid skin** (1.2 mm) over the lattice, like the reference slides.
+
+**Reference designs** (the first choice in the design panel): parameter sets modelled on the team's reference STLs. They were measured from them: sole and rim heights, strap coverage and thickness, strap and upper lattice, tread. Choosing one sets the style and those parameters, and everything can be adjusted afterwards (undoable).
+
+| Design | Like | Style |
+| --- | --- | --- |
+| Classic slide | Parth, Atit | slide, smooth solid vamp, hexagon tread |
+| Lattice-vamp slide | Rushik, Atheka, Anmol | slide, lattice panel vamp, diamond tread |
+| Sleek low slide | Jigar | slide, thin sole and vamp |
+| Split-toe lattice thong | Aashay | split-toe, wide lattice wings |
+| Lattice thong | Saagr | thong, lattice wings, wave tread |
+| Lattice sneaker | Shoes, Sagar_Shoes_red | shoe, grid double-skin upper, lattice sole wall |
+| Knit slip-on | Left/Right shoe_v1, sagar shoes | shoe, diamond (knit-look) double-skin upper |
+
+Straps and wings can be **solid** (smooth, pillow edges) or a **lattice panel**: a 7 mm solid border round the edge filled with a triangulated lattice (struts in the rules' range). Shoe uppers use a **grid** (triangles, braced) or **diamond** lattice.
 
 **Chappal** (styles from the reference photos):
 
 | Style | Shape |
 | --- | --- |
-| **Slide** | One wide vamp that grows out of the side walls, 3 mm thick with pillow-rounded edges. Its front edge runs straight across over the toe joints. Its back edge sweeps from the top of the instep down and back to the rim, so from the side the strap is a long diagonal. Its cross-sections are arches standing on the rim, each just high enough to clear the foot, smoothed along the foot. They bulge only where the foot is wider than the sole. You can set its length on top of the foot, position and thickness. |
+| **Slide** | One wide vamp that grows out of the side walls, 3 mm thick with pillow-rounded edges. Its front edge runs straight across over the toe joints. Its back edge sweeps from the top of the instep down and back to the rim, so from the side the strap is a long diagonal. Its cross-sections are arches standing on the rim, with the crown over the highest part of the foot (medial of the middle, so the arch is asymmetric like the reference vamps) and sides leaning in a little. Each is just high enough to clear the foot, then smoothed along the foot so that it hugs the instep, never dipping below what the foot needs. Rows behind the top of the vamp only exist low down at the sides, so they keep the first fitted arch and aren't raised round the ankle or leg. You can set its length on top of the foot, position and thickness. |
 | **Thong** | Two wide wings grow out of the side walls along the arch and meet over the instep. On the sole they end at the level of the arch end (AE landmark, or just behind the 1st metatarsal head), leaving a window above the sole in front of them. From where they meet, a rounded ridge runs forward and down onto the toe post, a tapered rounded column between the big toe and the other toes. You can set the wing width at the sole and the thickness. |
 | **Split-toe thong** | The same, with the sole split between the big toe and the others. |
 

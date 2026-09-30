@@ -2,8 +2,8 @@
  * Standard (product) shapes for footwear: the outer shape is not a copy of the foot but a
  * smooth, conventional form that is fitted around it.
  *
- *  - Outline: a sole spline (rounded heel, gentle waist, ball from the landmarks, rounded toe)
- *    grown until it contains the lower part of the foot plus the clearance and the rim wall.
+ *  - Outline: the footprint grown by the clearance, the rim wall and the toe allowance, then
+ *    faired (so the sole lines up with the foot, like the reference soles).
  *  - Sections: across the foot, a rounded arch (superellipse) standing on the rim. Its height is
  *    the smallest that clears the foot (+ clearance) at every point of the section, then
  *    smoothed along the foot, so straps and uppers are smooth envelopes of the foot.
@@ -16,9 +16,8 @@
  * world coordinates with `toWorld` (a rotation about Z plus a translation).
  */
 import { makeMesh, type MeshData } from '../types';
-import type { InsoleFrame } from '../insole/frame';
 import type { Grid } from '../insole/heightfield';
-import { catmullRomClosed, polygonSdf, type Pt } from '../insole/outline';
+import { polygonSdf, type Pt } from '../insole/outline';
 import { signedVolume } from '../mesh/normals';
 import { emptyLattice, type Lattice } from './lattice';
 
@@ -29,84 +28,60 @@ export type ToWorld = (a: number, b: number, z: number) => [number, number, numb
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Control points of the standard sole outline (last-bottom proportions, like the reference
- * slides and shoes): a narrow rounded heel, a waist that is fuller on the lateral side, the ball
- * from the M1/M5 landmarks and a rounded toe leaning towards the big toe. Each point comes with
- * the direction it moves in when the outline has to grow there.
+ * Sole outline that follows the foot, like the reference soles: the boundary of the region
+ * `need < 0` (the footprint grown by the clearance, the rim wall and the toe allowance), traced by
+ * rays from its centre and then faired – smoothed along the curve, but never cut back inside
+ * the region. Returns the polygon and its signed distance field.
  */
-export function soleControls(frame: InsoleFrame, length: number, heelBack: number): { ctrl: Pt[]; dir: Pt[] } {
-  const m = frame.medialSign, lat = -m, L = length;
-  const [a1, b1] = frame.met1, [a5, b5] = frame.met5;
-  const medBall = Math.abs(a1) + 6, latBall = Math.abs(a5) + 6;
-  const hw = 0.115 * L; // heel half width
-  const bToe = heelBack + L;
-  const s = Math.SQRT1_2;
-  const pts: [Pt, Pt][] = [
-    [[0, heelBack], [0, -1]],
-    [[lat * hw * 0.8, heelBack + 0.04 * L], [lat * s, -s]],
-    [[lat * hw, heelBack + 0.16 * L], [lat, 0]],
-    [[lat * (0.45 * hw + 0.55 * latBall) * 0.97, heelBack + 0.42 * L], [lat, 0]],
-    [[lat * latBall, b5], [lat, 0]],
-    [[lat * latBall * 0.9, b5 + 0.45 * (bToe - b5)], [lat * 0.95, 0.3]],
-    [[lat * latBall * 0.55, bToe - 0.05 * L], [lat * 0.55, 0.85]],
-    [[m * 0.25 * medBall, bToe], [0, 1]],
-    [[m * medBall * 0.95, b1 + 0.55 * (bToe - b1)], [m * 0.95, 0.3]],
-    [[m * medBall, b1], [m, 0]],
-    [[m * (0.55 * hw + 0.45 * medBall) * 0.9, heelBack + 0.42 * L], [m, 0]],
-    [[m * hw, heelBack + 0.16 * L], [m, 0]],
-    [[m * hw * 0.8, heelBack + 0.04 * L], [m * s, -s]],
-  ];
-  return { ctrl: pts.map((p) => p[0]), dir: pts.map(([, d]) => { const l = Math.hypot(d[0], d[1]); return [d[0] / l, d[1] / l] as Pt; }) };
-}
-
-/**
- * Standard outline (sole spline from heel back to toe tip) grown until every node for which
- * `contain(k)` holds is inside. Each control point grows on its own (heel, waist, ball and toe
- * separately), so the outline keeps a foot shape instead of turning into a scaled-up box.
- * Returns the polygon and its signed distance field.
- */
-export function standardOutline(frame: InsoleFrame, g: Grid, heelBack: number, length: number, contain: Uint8Array): { poly: Pt[]; sdf: Float32Array } {
-  // Only the border of the region matters for containment.
-  const border: [number, number][] = [];
-  for (let j = 1; j < g.ny - 1; j++)
-    for (let i = 1; i < g.nx - 1; i++) {
-      const k = j * g.nx + i;
-      if (contain[k] && (!contain[k - 1] || !contain[k + 1] || !contain[k - g.nx] || !contain[k + g.nx])) border.push([g.a0 + i * g.h, g.b0 + j * g.h]);
-    }
-  const { ctrl, dir } = soleControls(frame, length, heelBack);
-  const n = ctrl.length;
-  let poly: Pt[] = catmullRomClosed(ctrl, 14);
-  for (let it = 0; it < 120; it++) {
-    // How far the region sticks out near each control point (points are assigned to the
-    // nearest control point).
-    const need = new Float64Array(n);
-    let any = false;
-    for (const [a, b] of border) {
-      const d = polygonSdf(poly, a, b);
-      if (d <= -0.3) continue;
-      any = true;
-      let best = 0, bd = Infinity;
-      for (let i = 0; i < n; i++) {
-        const e = Math.hypot(ctrl[i][0] - a, ctrl[i][1] - b);
-        if (e < bd) {
-          bd = e;
-          best = i;
-        }
-      }
-      need[best] = Math.max(need[best], d + 0.6);
-    }
-    if (!any) break;
-    // move the point out, and its neighbours a little (keeps the curve fair)
-    for (let i = 0; i < n; i++) {
-      if (!need[i]) continue;
-      const step = Math.min(4, need[i]);
-      for (const [q, f] of [[i, 0.75], [(i + 1) % n, 0.3], [(i + n - 1) % n, 0.3]] as const) {
-        ctrl[q][0] += dir[q][0] * step * f;
-        ctrl[q][1] += dir[q][1] * step * f;
-      }
-    }
-    poly = catmullRomClosed(ctrl, 14);
+export function footprintOutline(g: Grid, need: Float32Array, sigma = 7): { poly: Pt[]; sdf: Float32Array } {
+  let ca = 0, cb = 0, n = 0;
+  for (let k = 0; k < need.length; k++) {
+    if (need[k] >= 0) continue;
+    ca += g.a0 + (k % g.nx) * g.h;
+    cb += g.b0 + Math.floor(k / g.nx) * g.h;
+    n++;
   }
+  if (!n) throw new Error('The scan has no footprint – check the alignment and landmarks.');
+  ca /= n;
+  cb /= n;
+  const at = (a: number, b: number) => {
+    const x = (a - g.a0) / g.h, y = (b - g.b0) / g.h;
+    const i = Math.min(g.nx - 2, Math.max(0, Math.floor(x))), j = Math.min(g.ny - 2, Math.max(0, Math.floor(y)));
+    const fx = Math.min(1, Math.max(0, x - i)), fy = Math.min(1, Math.max(0, y - j));
+    const k = j * g.nx + i;
+    return (need[k] * (1 - fx) + need[k + 1] * fx) * (1 - fy) + (need[k + g.nx] * (1 - fx) + need[k + g.nx + 1] * fx) * fy;
+  };
+  const K = 720;
+  const dirs: Pt[] = Array.from({ length: K }, (_, s) => [Math.cos((2 * Math.PI * s) / K), Math.sin((2 * Math.PI * s) / K)]);
+  // outermost boundary crossing along each ray
+  const rMin = dirs.map(([da, db]) => {
+    let last = 0;
+    for (let t = 0; t < 400; t += 0.5) if (at(ca + da * t, cb + db * t) < 0) last = t;
+    let lo = last, hi = last + 0.5;
+    for (let it = 0; it < 12; it++) {
+      const mid = (lo + hi) / 2;
+      if (at(ca + da * mid, cb + db * mid) < 0) lo = mid;
+      else hi = mid;
+    }
+    return hi + 0.3;
+  });
+  // fair: smooth the radius along the curve (Gaussian over arc length), never below the need
+  let r = rMin.slice();
+  for (let pass = 0; pass < 4; pass++) {
+    const next = r.map((_, s) => {
+      let acc = 0, wt = 0;
+      const ds = (2 * Math.PI * r[s]) / K; // arc length per step
+      const R = Math.min(K / 4, Math.ceil((3 * sigma) / Math.max(0.2, ds)));
+      for (let q = -R; q <= R; q++) {
+        const w = Math.exp(-((q * ds) ** 2) / (2 * sigma * sigma));
+        acc += r[(s + q + K) % K] * w;
+        wt += w;
+      }
+      return acc / wt;
+    });
+    r = next.map((v, s) => Math.max(v, rMin[s]));
+  }
+  const poly: Pt[] = r.map((v, s) => [ca + dirs[s][0] * v, cb + dirs[s][1] * v]);
   const sdf = new Float32Array(g.nx * g.ny);
   for (let j = 0; j < g.ny; j++)
     for (let i = 0; i < g.nx; i++) sdf[j * g.nx + i] = polygonSdf(poly, g.a0 + i * g.h, g.b0 + j * g.h);
@@ -151,6 +126,30 @@ export function smoothEnvelope(v: number[], w: number): number[] {
   });
 }
 
+/**
+ * Smooth curve that never dips below `v` but hugs it: repeatedly smooth (Gaussian, `sigma`
+ * samples) and lift back to `v`. Unlike a max filter it doesn't raise a whole slope to its top.
+ */
+export function smoothAbove(v: number[], sigma: number, iterations = 40): number[] {
+  const n = v.length, R = Math.ceil(3 * sigma);
+  const wts = Array.from({ length: 2 * R + 1 }, (_, q) => Math.exp(-((q - R) ** 2) / (2 * sigma * sigma)));
+  const blur = (h: number[]) =>
+    h.map((_, i) => {
+      let acc = 0, wt = 0;
+      for (let q = -R; q <= R; q++) {
+        acc += h[Math.min(n - 1, Math.max(0, i + q))] * wts[q + R];
+        wt += wts[q + R];
+      }
+      return acc / wt;
+    });
+  let h = v.slice();
+  for (let it = 0; it < iterations; it++) h = blur(h).map((x, i) => Math.max(x, v[i]));
+  // one last light blur, lifted by the largest shortfall it causes locally
+  const b = blur(h);
+  const short = smoothEnvelope(v.map((x, i) => Math.max(0, x - b[i])), Math.ceil(sigma));
+  return b.map((x, i) => x + short[i]);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Sections
 // ---------------------------------------------------------------------------------------------
@@ -170,13 +169,21 @@ export interface Section {
   hs: number;
   /** Superellipse exponent (2 = ellipse, larger = boxier). */
   p: number;
+  /** Across-position of the crown (defaults to ac): off-centre for an asymmetric arch that follows the instep. */
+  aTop?: number;
+  /** How much the sides lean in towards the top (0 = upright). */
+  taper?: number;
 }
 
 /** Point of a section at θ ∈ [0, π] (0 = medial or lateral base, π = the other base). */
 export function sectionAt(s: Section, th: number): [number, number] {
   const c = Math.cos(th), sn = Math.max(0, Math.sin(th));
-  const w = s.hw + ((s.hwMax ?? s.hw) - s.hw) * Math.pow(sn, 0.35);
-  return [s.ac - w * Math.sign(c) * Math.pow(Math.abs(c), 2 / s.p), s.zBase + s.hs * Math.pow(sn, 2 / s.p)];
+  const bulge = ((s.hwMax ?? s.hw) - s.hw) * Math.pow(sn, 0.35);
+  const top = s.aTop ?? s.ac;
+  // each half runs from its base to the crown; the sides lean in by `taper` towards the top
+  const half = c >= 0 ? top - (s.ac - s.hw) : s.ac + s.hw - top;
+  const w = (half + bulge) * (1 - (s.taper ?? 0) * Math.pow(sn, 2 / s.p));
+  return [top - w * Math.sign(c) * Math.pow(Math.abs(c), 2 / s.p), s.zBase + s.hs * Math.pow(sn, 2 / s.p)];
 }
 
 /** Outward unit normal of the section curve at θ (in the a–z plane). */
@@ -333,7 +340,10 @@ export function sectionBetween(rows: Section[], b: number): Section {
   while (i < rows.length - 2 && rows[i + 1].b < b) i++;
   const s0 = rows[i], s1 = rows[i + 1], f = (b - s0.b) / (s1.b - s0.b || 1);
   const mix = (x: number, y: number) => x + (y - x) * f;
-  return { b, ac: mix(s0.ac, s1.ac), hw: mix(s0.hw, s1.hw), hwMax: mix(s0.hwMax ?? s0.hw, s1.hwMax ?? s1.hw), zBase: mix(s0.zBase, s1.zBase), hs: mix(s0.hs, s1.hs), p: s0.p };
+  return {
+    b, ac: mix(s0.ac, s1.ac), hw: mix(s0.hw, s1.hw), hwMax: mix(s0.hwMax ?? s0.hw, s1.hwMax ?? s1.hw), zBase: mix(s0.zBase, s1.zBase), hs: mix(s0.hs, s1.hs), p: s0.p,
+    aTop: mix(s0.aTop ?? s0.ac, s1.aTop ?? s1.ac), taper: mix(s0.taper ?? 0, s1.taper ?? 0),
+  };
 }
 
 /**
@@ -351,11 +361,15 @@ export function archSheet(opts: {
   toWorld: ToWorld;
   M?: number;
   N?: number;
+  /** Part of the arch covered (0–1, from one base to the other); default all of it. */
+  uRange?: [number, number];
 }): MeshData {
-  const { rows, back, front, thickness, toWorld, M = 56, N = 40 } = opts;
+  const { rows, back, front, thickness, toWorld, M = 56, N = 40, uRange = [0, 1] } = opts;
   // arch parameter spaced by arc length on a representative section
   const mid = sectionBetween(rows, (back(0.5) + front(0.5)) / 2);
-  const thetas = evenThetas(mid, M);
+  const all = evenThetas(mid, 720);
+  const thetaAt = (u: number) => all[Math.min(720, Math.max(0, Math.round(u * 720)))];
+  const thetas = Array.from({ length: M + 1 }, (_, j) => thetaAt(uRange[0] + ((uRange[1] - uRange[0]) * j) / M));
   const inner: P3[][] = [];
   for (let i = 0; i <= N; i++) {
     const s = 0.5 - 0.5 * Math.cos((Math.PI * i) / N); // denser at the (rounded) edges
@@ -384,6 +398,72 @@ export function archSheet(opts: {
     }),
   );
   return loftRows(outer, inner, toWorld);
+}
+
+/**
+ * The same sheet as an open panel (like the lattice vamps and wings of the reference designs): a
+ * solid border band `border` wide round the edge, filled with a triangulated lattice (strut centres
+ * in the middle of the sheet's thickness, about one `cell` apart). Returns the border solids and
+ * the lattice.
+ */
+export function archPanel(opts: {
+  rows: Section[];
+  back: (u: number) => number;
+  front: (u: number) => number;
+  thickness: number;
+  border: number;
+  cell: number;
+  radius: number;
+  toWorld: ToWorld;
+}): { solids: MeshData[]; lattice: Lattice } {
+  const { rows, back, front, thickness: t, border, cell, radius, toWorld } = opts;
+  const mid = sectionBetween(rows, (back(0.5) + front(0.5)) / 2);
+  const Ltot = sectionLength(mid);
+  const all = evenThetas(mid, 720);
+  const thetaAt = (u: number) => all[Math.min(720, Math.max(0, Math.round(u * 720)))];
+  const uB = Math.min(0.2, border / Ltot);
+  const edge = (s: number) => Math.max(0.7, t * Math.pow(Math.max(0, 1 - Math.abs(2 * s - 1) ** 6), 0.3));
+  const solids = [
+    archSheet({ rows, back, front: (u) => Math.min(front(u), back(u) + border), thickness: edge, toWorld, N: 12 }),
+    archSheet({ rows, back: (u) => Math.max(back(u), front(u) - border), front, thickness: edge, toWorld, N: 12 }),
+    archSheet({ rows, back, front, thickness: () => t, toWorld, uRange: [0, uB], M: 8 }),
+    archSheet({ rows, back, front, thickness: () => t, toWorld, uRange: [1 - uB, 1], M: 8 }),
+  ];
+  // triangular lattice in (arc length across the arch, b along the foot)
+  const lattice = emptyLattice();
+  const ids = new Map<string, number>();
+  let bLo = Infinity, bHi = -Infinity;
+  for (let q = 0; q <= 40; q++) {
+    bLo = Math.min(bLo, back(q / 40));
+    bHi = Math.max(bHi, front(q / 40));
+  }
+  const dv = cell * 0.866;
+  for (let i = 0; bLo + i * dv <= bHi; i++) {
+    const V = bLo + i * dv;
+    for (let j = 0; j * cell <= Ltot; j++) {
+      const U = j * cell + (i % 2 ? cell / 2 : 0);
+      const u = U / Ltot;
+      if (u < 0.5 * uB || u > 1 - 0.5 * uB || V < back(u) + 0.5 * border || V > front(u) - 0.5 * border) continue;
+      const sec = sectionBetween(rows, V), th = thetaAt(u);
+      const [a, z] = sectionAt(sec, th), [na, nz] = sectionNormal(sec, th);
+      lattice.nodes.push(...toWorld(a + (na * t) / 2, V, z + (nz * t) / 2));
+      ids.set(`${i},${j}`, lattice.nodes.length / 3 - 1);
+    }
+  }
+  const link = (p: number | undefined, q: number | undefined) => {
+    if (p === undefined || q === undefined) return;
+    lattice.edges.push(p, q);
+    lattice.radii.push(radius);
+  };
+  for (const [key, id] of ids) {
+    const [i, j] = key.split(',').map(Number);
+    link(id, ids.get(`${i},${j + 1}`));
+    // the next row is shifted half a cell: its neighbours are j and j±1
+    const k = i % 2 ? j + 1 : j - 1;
+    link(id, ids.get(`${i + 1},${j}`));
+    link(id, ids.get(`${i + 1},${k}`));
+  }
+  return { solids, lattice };
 }
 
 /**
@@ -459,8 +539,13 @@ export function sectionLattice(opts: {
    * out along the surface normal, braced to the inner one by crossing diagonals (an X in section).
    */
   shell?: number;
+  /**
+   * 'grid': rows of nodes along the sections zipped into triangles; 'diamond': every other row
+   * shifted half a cell and no struts along the rows, so the struts form diamonds (a knit look).
+   */
+  pattern?: 'grid' | 'diamond';
 }): Lattice & { collarEdges: Set<number>; nodeCount: number } {
-  const { sections, cell, radius: r, collarR, opening, collarZ, toWorld, shell = 0 } = opts;
+  const { sections, cell, radius: r, collarR, opening, collarZ, toWorld, shell = 0, pattern = 'grid' } = opts;
   const out = { ...emptyLattice(), collarEdges: new Set<number>(), nodeCount: 0 };
   const outerOf = new Map<number, [number, number, number]>(); // node → its outer copy's position
   const node = (s: Section, th: number, extra = 0) => {
@@ -478,9 +563,9 @@ export function sectionLattice(opts: {
   };
   type Row = { ids: number[]; ts: number[]; cutM: number; cutL: number; collarM: number; collarL: number };
   const rows: Row[] = [];
-  for (const s of sections) {
+  for (const [si, s] of sections.entries()) {
     const n = Math.max(2, Math.round(sectionLength(s) / cell));
-    const ths = evenThetas(s, n);
+    const ths = pattern === 'diamond' && si % 2 ? evenThetas(s, 2 * n).filter((_, k) => k % 2 === 1 || k === 0 || k === 2 * n) : evenThetas(s, n);
     const ts = ths.map((t) => t / Math.PI);
     const ids = ths.map((t) => (opening(s.b, sectionAt(s, t)[1]) ? -1 : node(s, t)));
     // exact collar points where the section crosses the collar height (both sides)
@@ -507,7 +592,7 @@ export function sectionLattice(opts: {
   // rows: edges along each section and zipped diagonals between sections
   for (let i = 0; i < rows.length; i++) {
     const R0 = rows[i];
-    for (let j = 0; j + 1 < R0.ids.length; j++) edge(R0.ids[j], R0.ids[j + 1]);
+    if (pattern === 'grid') for (let j = 0; j + 1 < R0.ids.length; j++) edge(R0.ids[j], R0.ids[j + 1]);
     if (i + 1 >= rows.length) continue;
     const R1 = rows[i + 1];
     let j = 0, k = 0;
