@@ -23,7 +23,7 @@ import { buildSolid } from '../insole/solidMesh';
 import type { PlantarSurface } from '../insole/generate';
 import { computeVertexNormals, signedVolume } from '../mesh/normals';
 import { rasterizeHighestSurface, signedDistance, sphericalDilate, sphericalErode } from './fields';
-import { estimateDorsum, heightFieldMesh } from './dorsum';
+import { estimateDorsum, loftDorsum } from './dorsum';
 import { appendLattice, concatMeshes, conformalLattice, emptyLattice, latticeToMesh, sampleGrid, surfaceLattice, type Lattice } from './lattice';
 import { FOOTWEAR_RULES, type FootwearKind, type FootwearParams } from './params';
 
@@ -89,7 +89,7 @@ export function prepareFootData(surface: PlantarSurface, positions: Float32Array
     // where it reaches higher (e.g. scans that capture the sides).
     const est = estimateDorsum(mask, surface.z, g);
     for (let k = 0; k < top.length; k++) if (mask[k]) top[k] = Math.max(top[k], est[k]);
-    const dome = heightFieldMesh(top, g, surface.frame);
+    const dome = loftDorsum(mask, surface.z, g, surface.frame);
     upper = { positions: dome.positions, indices: dome.indices, normals: computeVertexNormals(dome) };
     // Clearance checks use one closed shell: the dome on top, the scanned sole below and side
     // walls along the footprint edge. The open scan itself would make inside/outside ambiguous

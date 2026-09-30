@@ -200,7 +200,8 @@ Footwear is the third category, after the full length and 3/4 insoles. It uses t
 Straps are the top of the foot offset outward by the clearance, then by the strap thickness. If the scan's toes aren't separated, the toe post overlaps them; this is reported as a warning.
 
 **Scans without the top of the foot** (plantar / foam-box scans, or scans that stop low on the sides): the straps and the shoe upper are fitted to an **estimated dorsum**, and a warning says so.
-- The estimate is modelled from the scanned footprint: a typical adult dorsal height profile along the foot (as a fraction of the foot length), and a rounded section across the footprint width. Where the scan reaches higher, the scan wins.
+- The estimate is modelled from the scanned footprint: a typical adult dorsal height profile along the foot (as a fraction of the foot length, with an almost vertical heel back), and a rounded section across the footprint width. Where the scan reaches higher, the scan wins.
+- For the shoe upper this shape is lofted as cross-sections with end caps at the heel and toes, so the lattice is as dense on the steep sides as on top.
 - The clearance checks then use a closed shell made of the scanned sole plus the estimated dorsum.
 - Check the fit on the patient, or use a full foot scan for an exact fit.
 

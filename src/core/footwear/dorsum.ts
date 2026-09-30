@@ -11,7 +11,8 @@ import { gaussianBlur, type Grid } from '../insole/heightfield';
 
 /** Dorsal height above the sole (fraction of foot length) vs position from heel (0) to toe (1). */
 const PROFILE: [number, number][] = [
-  [0, 0.03], [0.03, 0.15], [0.1, 0.25], [0.3, 0.29], [0.5, 0.23], [0.72, 0.14], [0.85, 0.1], [0.95, 0.06], [1, 0.02],
+  // the back of the heel rises almost vertically (heel counter / Achilles region)
+  [0, 0.12], [0.02, 0.22], [0.08, 0.27], [0.3, 0.29], [0.5, 0.23], [0.72, 0.14], [0.85, 0.1], [0.95, 0.06], [1, 0.02],
 ];
 
 export function dorsalHeightFraction(s: number): number {
@@ -65,31 +66,76 @@ export function estimateDorsum(mask: Uint8Array, plantar: Float32Array, g: Grid)
 }
 
 /**
- * Surface mesh of a height field (world coordinates) over its defined (non-NaN) region,
- * triangulated every `step` grid nodes, facing up (or down with `facingDown`).
+ * The estimated top of the foot as a lofted surface mesh (world coordinates, facing outward):
+ * one cross-section every `step` mm along the foot, each a rounded arch from the medial to the
+ * lateral edge of the footprint sampled evenly around its curve, closed with end caps at the
+ * heel and the toes. Unlike a height-field mesh it has even vertex density on the steep sides,
+ * so the shoe upper's lattice is as dense there as on top.
  */
-export function heightFieldMesh(f: Float32Array, g: Grid, frame: InsoleFrame, step = 2, facingDown = false): MeshData {
+export function loftDorsum(mask: Uint8Array, plantar: Float32Array, g: Grid, frame: InsoleFrame, step = 2): MeshData {
   const { nx, ny } = g;
-  const id = new Int32Array(nx * ny).fill(-1);
+  let back = Infinity, front = -Infinity;
+  const rowMin = new Float32Array(ny).fill(Infinity), rowMax = new Float32Array(ny).fill(-Infinity);
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) {
+      if (!mask[j * nx + i]) continue;
+      const a = g.a0 + i * g.h, b = g.b0 + j * g.h;
+      back = Math.min(back, b);
+      front = Math.max(front, b);
+      rowMin[j] = Math.min(rowMin[j], a);
+      rowMax[j] = Math.max(rowMax[j], a);
+    }
+  const L = front - back;
+  const at = (a: number, b: number) => {
+    const i = Math.min(nx - 1, Math.max(0, Math.round((a - g.a0) / g.h))), j = Math.min(ny - 1, Math.max(0, Math.round((b - g.b0) / g.h)));
+    return plantar[j * nx + i];
+  };
+  const SEG = 40;
   const pos: number[] = [];
-  for (let j = 0; j < ny; j += step)
-    for (let i = 0; i < nx; i += step) {
-      const k = j * nx + i;
-      if (Number.isNaN(f[k])) continue;
-      id[k] = pos.length / 3;
-      const [x, y] = frameToWorld(frame, g.a0 + i * g.h, g.b0 + j * g.h);
-      pos.push(x, y, f[k]);
+  const rows: number[] = []; // first vertex index of each section
+  const centres: [number, number, number][] = [];
+  const stepRows = Math.max(1, Math.round(step / g.h));
+  for (let j = 0; j < ny; j += stepRows) {
+    if (!Number.isFinite(rowMin[j])) continue;
+    const b = g.b0 + j * g.h;
+    const h = dorsalHeightFraction((b - back) / L) * L;
+    const ac = (rowMin[j] + rowMax[j]) / 2, hw = Math.max(1, (rowMax[j] - rowMin[j]) / 2);
+    rows.push(pos.length / 3);
+    for (let s = 0; s <= SEG; s++) {
+      const th = (Math.PI * s) / SEG, c = Math.cos(th), sn = Math.sin(th);
+      const a = ac + hw * Math.sign(c) * Math.pow(Math.abs(c), 2 / 3);
+      const [x, y] = frameToWorld(frame, a, b);
+      pos.push(x, y, at(a, b) + h * Math.pow(sn, 2 / 3));
     }
+    const [cx, cy] = frameToWorld(frame, ac, b);
+    centres.push([cx, cy, at(ac, b)]);
+  }
   const idx: number[] = [];
-  for (let j = 0; j + step < ny; j += step)
-    for (let i = 0; i + step < nx; i += step) {
-      const p = id[j * nx + i], q = id[j * nx + i + step], r = id[(j + step) * nx + i + step], s = id[(j + step) * nx + i];
-      // CCW in (a, b) = facing +Z (see solidMesh)
-      if (p >= 0 && q >= 0 && r >= 0) idx.push(p, q, r);
-      if (p >= 0 && r >= 0 && s >= 0) idx.push(p, r, s);
-      else if (p >= 0 && q >= 0 && s >= 0 && r < 0) idx.push(p, q, s);
-      else if (q >= 0 && r >= 0 && s >= 0 && p < 0) idx.push(q, r, s);
+  for (let r = 0; r + 1 < rows.length; r++)
+    for (let s = 0; s < SEG; s++) {
+      const p = rows[r] + s, q = rows[r] + s + 1, u = rows[r + 1] + s + 1, v = rows[r + 1] + s;
+      idx.push(p, q, u, p, u, v);
     }
-  if (facingDown) for (let t = 0; t < idx.length; t += 3) [idx[t + 1], idx[t + 2]] = [idx[t + 2], idx[t + 1]];
+  for (const r of [0, rows.length - 1]) {
+    const c = pos.length / 3;
+    pos.push(...centres[r]);
+    for (let s = 0; s < SEG; s++) idx.push(c, rows[r] + s, rows[r] + s + 1);
+  }
+  // Orient every triangle away from the middle of the foot (the dome is convex enough).
+  let mx = 0, my = 0, mz = 0;
+  const nv = pos.length / 3;
+  for (let v = 0; v < nv; v++) {
+    mx += pos[3 * v] / nv;
+    my += pos[3 * v + 1] / nv;
+    mz += pos[3 * v + 2] / nv;
+  }
+  for (let t = 0; t < idx.length; t += 3) {
+    const A = idx[t] * 3, B = idx[t + 1] * 3, C = idx[t + 2] * 3;
+    const e1 = [pos[B] - pos[A], pos[B + 1] - pos[A + 1], pos[B + 2] - pos[A + 2]];
+    const e2 = [pos[C] - pos[A], pos[C + 1] - pos[A + 1], pos[C + 2] - pos[A + 2]];
+    const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+    const o = [(pos[A] + pos[B] + pos[C]) / 3 - mx, (pos[A + 1] + pos[B + 1] + pos[C + 1]) / 3 - my, (pos[A + 2] + pos[B + 2] + pos[C + 2]) / 3 - mz];
+    if (n[0] * o[0] + n[1] * o[1] + n[2] * o[2] < 0) [idx[t + 1], idx[t + 2]] = [idx[t + 2], idx[t + 1]];
+  }
   return makeMesh(Float32Array.from(pos), Uint32Array.from(idx));
 }
