@@ -9,6 +9,7 @@
  *  - clearance between the foot and the footwear 1 – 2 mm
  */
 import type { Range } from '../insole/params';
+import { normalizeDetail, type MeshDetail } from '../detail';
 
 export type FootwearKind = 'shoe' | 'chappal';
 export type ChappalStyle = 'slide' | 'thong' | 'splitToe';
@@ -25,6 +26,8 @@ export interface FootwearParams {
   kind: FootwearKind;
   /** The reference design the parameters were last set from ('custom' = none). */
   design: DesignId;
+  /** Mesh detail (surface grid, strut roundness, strap sampling). */
+  detail: MeshDetail;
   chappalStyle: ChappalStyle;
   shoeSizeUK: number;
   /** Gap between the foot and the footwear (mm) – design rule 1–2 mm. */
@@ -92,6 +95,7 @@ export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chap
   return {
     kind,
     design: kind === 'shoe' ? 'latticeSneaker' : 'classicSlide',
+    detail: 'standard',
     chappalStyle: 'slide',
     shoeSizeUK,
     clearance: 1.5,
@@ -128,6 +132,7 @@ export function normalizeFootwearParams(raw: unknown): FootwearParams {
     tread: ['none', 'hexagon', 'diamond', 'waves'].includes(r.tread) ? r.tread : d.tread,
     sideWall: r.sideWall === 'solid' || r.sideWall === 'lattice' ? r.sideWall : d.sideWall,
     footbedSkin: typeof r.footbedSkin === 'boolean' ? r.footbedSkin : d.footbedSkin,
+    detail: normalizeDetail(r.detail),
     design: typeof r.design === 'string' && (r.design === 'custom' || r.design in REFERENCE_DESIGNS) ? (r.design as DesignId) : d.design,
     strapPattern: r.strapPattern === 'lattice' || r.strapPattern === 'solid' ? r.strapPattern : d.strapPattern,
     upperPattern: r.upperPattern === 'diamond' || r.upperPattern === 'grid' ? r.upperPattern : d.upperPattern,

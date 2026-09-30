@@ -103,6 +103,20 @@ describe('insole generator', () => {
     expect(analyzeMesh(r.mesh).bounds.min[2]).toBeCloseTo(r.baseZ!, 4);
   });
 
+  it('high mesh detail: a finer grid gives more triangles and the same insole', () => {
+    const foot = closedFoot(3);
+    const fine = samplePlantarSurface(foot.positions, foot.indices, {
+      heelCentre: [...LANDMARKS.heelCentre], met1Head: [...LANDMARKS.met1Head], met5Head: [...LANDMARKS.met5Head],
+    }, 0.5);
+    const std = gen(), hi = generateInsole(fine, { ...defaultInsoleParams(8), detail: 'high' });
+    expect(hi.mesh.indices.length).toBeGreaterThan(3 * std.mesh.indices.length);
+    expect(analyzeMesh(hi.mesh).watertight).toBe(true);
+    expect(hi.length).toBeCloseTo(std.length, 0);
+    expect(Math.abs(hi.width - std.width)).toBeLessThan(1.5);
+    expect(hi.minThickness).toBeCloseTo(std.minThickness, 1);
+    expect(Math.abs(hi.maxThickness - std.maxThickness)).toBeLessThan(1);
+  });
+
   it('narrow profile', () => {
     expect(gen((p) => (p.narrowProfile = true)).width).toBeLessThan(gen().width * 0.93);
   });

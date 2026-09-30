@@ -415,8 +415,10 @@ export function archPanel(opts: {
   cell: number;
   radius: number;
   toWorld: ToWorld;
+  /** Sampling density multiplier of the border sheets (mesh detail). */
+  detail?: number;
 }): { solids: MeshData[]; lattice: Lattice } {
-  const { rows, back, front, thickness: t, border, cell, radius, toWorld } = opts;
+  const { rows, back, front, thickness: t, border, cell, radius, toWorld, detail = 1 } = opts;
   const mid = sectionBetween(rows, (back(0.5) + front(0.5)) / 2);
   const Ltot = sectionLength(mid);
   const all = evenThetas(mid, 720);
@@ -424,10 +426,10 @@ export function archPanel(opts: {
   const uB = Math.min(0.2, border / Ltot);
   const edge = (s: number) => Math.max(0.7, t * Math.pow(Math.max(0, 1 - Math.abs(2 * s - 1) ** 6), 0.3));
   const solids = [
-    archSheet({ rows, back, front: (u) => Math.min(front(u), back(u) + border), thickness: edge, toWorld, N: 12 }),
-    archSheet({ rows, back: (u) => Math.max(back(u), front(u) - border), front, thickness: edge, toWorld, N: 12 }),
-    archSheet({ rows, back, front, thickness: () => t, toWorld, uRange: [0, uB], M: 8 }),
-    archSheet({ rows, back, front, thickness: () => t, toWorld, uRange: [1 - uB, 1], M: 8 }),
+    archSheet({ rows, back, front: (u) => Math.min(front(u), back(u) + border), thickness: edge, toWorld, M: 56 * detail, N: 12 * detail }),
+    archSheet({ rows, back: (u) => Math.max(back(u), front(u) - border), front, thickness: edge, toWorld, M: 56 * detail, N: 12 * detail }),
+    archSheet({ rows, back, front, thickness: () => t, toWorld, uRange: [0, uB], M: 8 * detail, N: 40 * detail }),
+    archSheet({ rows, back, front, thickness: () => t, toWorld, uRange: [1 - uB, 1], M: 8 * detail, N: 40 * detail }),
   ];
   // triangular lattice in (arc length across the arch, b along the foot)
   const lattice = emptyLattice();

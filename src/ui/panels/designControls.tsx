@@ -104,10 +104,10 @@ export function SliderField<P = InsoleParams>({
   );
 }
 
-export function SelectField<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: Record<T, string>; onChange: (v: T) => void }) {
+export function SelectField<T extends string>({ label, value, options, onChange, testId }: { label: string; value: T; options: Record<T, string>; onChange: (v: T) => void; testId?: string }) {
   return (
     <Field label={label}>
-      <select value={value} onChange={(e) => onChange(e.target.value as T)}>
+      <select value={value} onChange={(e) => onChange(e.target.value as T)} data-testid={testId}>
         {(Object.keys(options) as T[]).map((k) => (
           <option key={k} value={k}>
             {options[k]}

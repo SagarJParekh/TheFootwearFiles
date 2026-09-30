@@ -13,6 +13,7 @@ import { BasePlaneStatus } from './TransformPanel';
 import { ScanDisplayToggle } from '../ScanDisplayToggle';
 import { Field, SelectField, SliderField, Switch, ToggleField } from './designControls';
 import { FootwearPanel } from './FootwearPanel';
+import { MESH_DETAIL_LABEL, type MeshDetail } from '../../core/detail';
 import { setDesignCategory } from '../../state/footwearActions';
 
 // --- panel ------------------------------------------------------------------------------
@@ -232,6 +233,8 @@ export function InsolePanel() {
           <Field label="Foot scan">
             <ScanDisplayToggle />
           </Field>
+          <SelectField<MeshDetail> label="Mesh detail (triangles)" value={p.detail} options={MESH_DETAIL_LABEL} onChange={(v) => updateInsole('Mesh detail', (q) => ({ ...q, detail: v }))} testId="insole-detail" />
+          {result && <div className="hint" style={{ marginTop: -4 }}>{(result.mesh.indices.length / 3).toLocaleString()} triangles</div>}
           <Field label={`Finalise and download ${p.type === 'full' ? 'full-length (FDM)' : '3/4 (powder)'} insole`}>
             <button
               className="download"

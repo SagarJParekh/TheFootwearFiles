@@ -169,6 +169,7 @@ On a 3/4 insole the bar is moved back just enough to fit completely in front of 
 
 **Also:**
 - **Foot: Visible / Transparent / Hidden** controls how the scan is drawn. It is in the designer panel and also floats at the top left of the viewport once an insole exists. The foot switches to Transparent automatically when the insole is created.
+- **Mesh detail:** *Standard* (1 mm surface grid), *High* (0.5 mm, about 4× the triangles) or *Ultra* (0.35 mm, about 8×, slower). The panel shows the triangle count.
 - **Finalise and download** exports a watertight STL in world coordinates, named `<scan>-full-UK8.stl` or `<scan>-threeQuarter-UK8.stl`.
 - The design is saved with the project.
 
@@ -231,10 +232,10 @@ Straps and wings can be **solid** (smooth, pillow edges) or a **lattice panel**:
 | Style | Shape |
 | --- | --- |
 | **Slide** | One wide vamp that grows out of the side walls, 3 mm thick with pillow-rounded edges. Its front edge runs straight across over the toe joints. Its back edge sweeps from the top of the instep down and back to the rim, so from the side the strap is a long diagonal. Its cross-sections are arches standing on the rim, with the crown over the highest part of the foot (medial of the middle, so the arch is asymmetric like the reference vamps) and sides leaning in a little. Each is just high enough to clear the foot, then smoothed along the foot so that it hugs the instep, never dipping below what the foot needs. Rows behind the top of the vamp only exist low down at the sides, so they keep the first fitted arch and aren't raised round the ankle or leg. You can set its length on top of the foot, position and thickness. |
-| **Thong** | Two wide wings grow out of the side walls along the arch and meet over the instep. On the sole they end at the level of the arch end (AE landmark, or just behind the 1st metatarsal head), leaving a window above the sole in front of them. From where they meet, a rounded ridge runs forward and down onto the toe post, a tapered rounded column between the big toe and the other toes. You can set the wing width at the sole and the thickness. |
+| **Thong** | Two wide wings grow out of the side walls along the arch and meet over the instep. On the sole they end at the level of the arch end (AE landmark, or just behind the 1st metatarsal head), leaving a window above the sole in front of them. From where they meet, a rounded ridge runs forward and down onto the toe post, a slim tapered column (5.5 mm across) between the big toe and the other toes. The ridge is kept clear of the toes across its whole width. You can set the wing width at the sole and the thickness. |
 | **Split-toe thong** | The same, with the sole split between the big toe and the others. |
 
-If the scan's toes aren't separated, the toe post overlaps them; this is reported as a warning.
+**Toe post position:** on full scans the post goes in the web between the 1st and 2nd toes, **found on the scan**. The app works forward row by row from the metatarsal heads, looking for the first dip (or gap) in the height of the top of the foot lateral of the big toe, 12–42 % across the forefoot from the medial edge. The post sits 5 mm in front of the base of that cleft. If the cleft isn't visible (toes pressed together, or a sole-only scan), the post is placed from the M1/M5 landmarks and a warning says so. If the gap between the toes is narrower than the post, the warning says how far the post presses into them.
 
 **Shoe:** the same sole (with a lattice side wall by default), plus a **smooth last-like upper**, a slip-on like the reference lattice shoes.
 - Its cross-sections stand on the rim and are fitted around the foot, then smoothed along it.
@@ -260,6 +261,8 @@ If the scan's toes aren't separated, the toe post overlaps them; this is reporte
 | Toe spring, toe allowance | 0–15, 0–20 mm | kind-specific |
 | Strap length on top / position / thickness (slide), wing width at the sole (thong) | 30–100 mm / 45–80 % / 2–8 mm, 25–80 mm | 70 / 66 % / 3, 55 |
 | Collar height / throat / collar rim (shoe) | 25–90 mm / 40–75 % / 2–4 mm | 45 / 45 % / 3 |
+
+**Mesh detail** (Finish & download): *Standard*, *High* or *Ultra*. It sets the surface grid of the sole, rim and footbed (1 / 0.5 / 0.35 mm), the roundness of the lattice struts (6 / 10 / 14 sides, also in the merged export) and the sampling of straps, wings and tubes (×1 / ×2 / ×3). On a real scan, *High* gives about 0.9–1.2 million triangles for the footwear and takes a few seconds longer.
 
 **Download:**
 

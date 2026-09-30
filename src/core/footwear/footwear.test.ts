@@ -312,6 +312,19 @@ describe('footwear generator', () => {
     expect(diamond.rules.every((x) => x.ok)).toBe(true);
   });
 
+  it('high mesh detail: finer surfaces and rounder struts, same design rules', () => {
+    const m = closedFoot(3);
+    const fine = prepareFootData(samplePlantarSurface(m.positions, m.indices, landmarks(), 0.5), m.positions, m.indices);
+    for (const kind of ['chappal', 'shoe'] as const) {
+      const std = gen(() => {}, kind);
+      const hi = generateFootwear(fine, { ...defaultFootwearParams(6, kind), detail: 'high' });
+      expect(hi.mesh.indices.length, kind).toBeGreaterThan(1.5 * std.mesh.indices.length);
+      expect(hi.rules.every((x) => x.ok), `${kind}: ${hi.rules.map((x) => x.value).join(' | ')}`).toBe(true);
+      for (const s of hi.parts.solids) expect(analyzeMesh(s).watertight && consistent(s), kind).toBe(true);
+      expect(Math.abs(hi.length - std.length)).toBeLessThan(2);
+    }
+  });
+
   it('the sole follows the footprint: it contains it with room for the wall, and is not much wider', () => {
     const r = gen();
     const sole = r.parts.solids[0].positions, f = foot.surface.frame, g = foot.surface.grid;

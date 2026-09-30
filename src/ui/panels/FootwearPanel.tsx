@@ -8,6 +8,7 @@ import { applyFootwearDesign, exportFootwearStl, footwearGesture, setFootwearEna
 import { useStore } from '../../state/store';
 import { Panel, downloadBlob } from '../common';
 import { ScanDisplayToggle } from '../ScanDisplayToggle';
+import { MESH_DETAIL_LABEL, type MeshDetail } from '../../core/detail';
 import { Field, SelectField, SliderField, Switch, type ParamApi } from './designControls';
 
 const api: ParamApi<FootwearParams> = { ...footwearGesture, commit: updateFootwear };
@@ -163,6 +164,8 @@ export function FootwearPanel({ ready }: { ready: boolean }) {
           <div className="hint" style={{ marginTop: -4 }}>
             Off: the parts are exported as overlapping closed shells (fast; slicers join them). On: one watertight solid (can take a minute).
           </div>
+          <SelectField<MeshDetail> label="Mesh detail (triangles)" value={p.detail} options={MESH_DETAIL_LABEL} onChange={(v) => updateFootwear('Mesh detail', (q) => ({ ...q, detail: v }))} testId="fw-detail" />
+          {result && <div className="hint" style={{ marginTop: -4 }}>{(result.mesh.indices.length / 3).toLocaleString()} triangles</div>}
           <Field label={`Download ${p.kind === 'shoe' ? 'shoe' : 'chappal'}`}>
             <button
               className="download"

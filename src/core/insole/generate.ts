@@ -38,9 +38,8 @@ export interface PlantarSurface {
 }
 
 /** Step 1 – expensive (depends only on scan, transform and landmarks), so callers cache it. */
-export function samplePlantarSurface(worldPositions: Float32Array, indices: Uint32Array, landmarks: FrameLandmarks): PlantarSurface {
+export function samplePlantarSurface(worldPositions: Float32Array, indices: Uint32Array, landmarks: FrameLandmarks, h = GRID_SPACING_MM): PlantarSurface {
   const frame = buildInsoleFrame(landmarks);
-  const h = GRID_SPACING_MM;
   const grid: Grid = { a0: -95, b0: -110, h, nx: Math.round(190 / h) + 1, ny: Math.round(470 / h) + 1 };
   const raw = rasterizeLowestSurface(worldPositions, indices, frame, grid);
   const covered = new Uint8Array(raw.length);

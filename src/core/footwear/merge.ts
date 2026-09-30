@@ -7,7 +7,7 @@ import { latticeToMesh, type Lattice } from './lattice';
  * solid with manifold-3d boolean union. This takes tens of seconds for ~10 000 struts, so it
  * is an export option; the default export is the overlapping closed parts (slicers union them).
  */
-export function mergeFootwear(wasm: ManifoldToplevel, parts: { solids: MeshData[]; lattice: Lattice }): MeshData {
+export function mergeFootwear(wasm: ManifoldToplevel, parts: { solids: MeshData[]; lattice: Lattice }, strutSides = 6): MeshData {
   const { Manifold, Mesh } = wasm;
   const all: ManifoldT[] = [];
   const make = (positions: Float32Array, indices: Uint32Array) => {
@@ -27,7 +27,7 @@ export function mergeFootwear(wasm: ManifoldToplevel, parts: { solids: MeshData[
     const l = parts.lattice, N = l.nodes;
     for (let e = 0; e < l.edges.length / 2; e++) {
       const p = l.edges[2 * e], q = l.edges[2 * e + 1];
-      const strut = latticeToMesh({ nodes: [...N.slice(3 * p, 3 * p + 3), ...N.slice(3 * q, 3 * q + 3)], edges: [0, 1], radii: [l.radii[e]] }, 6, false);
+      const strut = latticeToMesh({ nodes: [...N.slice(3 * p, 3 * p + 3), ...N.slice(3 * q, 3 * q + 3)], edges: [0, 1], radii: [l.radii[e]] }, strutSides, false);
       struts.push(make(strut.positions, strut.indices));
     }
     const solidUnion = Manifold.union(solids), strutUnion = Manifold.union(struts);

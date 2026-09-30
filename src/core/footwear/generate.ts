@@ -33,6 +33,7 @@ import { estimateDorsum } from './dorsum';
 import { appendLattice, concatMeshes, conformalLattice, emptyLattice, latticeToMesh, sampleGrid, type Lattice } from './lattice';
 import { archPanel, archSheet, fitArchHeight, rowExtent, sectionBetween, sectionLattice, smoothAbove, smoothEnvelope, footprintOutline, sweepRounded, type Section } from './shape';
 import { FOOTWEAR_RULES, type FootwearKind, type FootwearParams } from './params';
+import { MESH_DETAIL } from '../detail';
 
 /** Per-scan data that doesn't depend on the design parameters (cached by the caller). */
 export interface FootData {
@@ -374,6 +375,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   const { frame, grid: g } = surface;
   const nodeCount = g.nx * g.ny;
   const c = p.clearance, r = p.strutDiameter / 2, wall = p.wallThickness;
+  const det = MESH_DETAIL[p.detail];
   const warnings: string[] = [];
   const toWorld = (a: number, b: number, z: number): [number, number, number] => {
     const [x, y] = frameToWorld(frame, a, b);
@@ -421,7 +423,59 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     const d = 0.09 * footLen;
     return [a1 + 0.18 * dA + nA * d, b1 + 0.18 * dB + nB * d];
   };
-  const post = toePost();
+  /**
+   * The web between the big toe and the 2nd toe, found on the scan: going forward row by row
+   * from the metatarsal heads, the first dip in the height of the top of the foot (or a gap in
+   * it) lateral of the big toe. The web is the most proximal point of that cleft. Null when the
+   * scan doesn't show it (toes pressed together, or a sole-only scan).
+   */
+  const toeWeb = (): [number, number] | null => {
+    const m = frame.medialSign;
+    const bStart = Math.min(b1, b5) - 5;
+    const found: { b: number; a: number }[] = [];
+    for (let b = bStart; b <= silFront - 8; b += 1) {
+      // height profile from the medial edge towards the lateral side (gaps count as the floor)
+      const prof: { a: number; h: number }[] = [];
+      let started = false;
+      for (let q = 0; q <= 70; q += 0.5) {
+        const a = a1 + m * 25 - m * q; // from 25 mm medial of M1 across
+        const h = at(foot.top, a, b), z0 = at(foot.bed, a, b);
+        const hh = Number.isFinite(h) ? h - (Number.isFinite(z0) ? z0 : 0) : 0;
+        if (!started && hh <= 2) continue;
+        started = true;
+        prof.push({ a, h: hh });
+      }
+      if (prof.length < 10) continue;
+      // hallux crown: highest point in the first 35 mm; then the lowest point before the next rise
+      let crown = 0;
+      for (let k = 0; k < prof.length && k < 50; k++) if (prof[k].h > prof[crown].h) crown = k;
+      let valley = crown;
+      for (let k = crown; k < prof.length; k++) {
+        if (prof[k].h < prof[valley].h) valley = k;
+        if (prof[k].h > prof[valley].h + 4) break; // rising onto the 2nd toe
+      }
+      let next = 0;
+      for (let k = valley; k < prof.length; k++) next = Math.max(next, prof[k].h);
+      const depth = Math.min(prof[crown].h, next) - prof[valley].h;
+      // the big toe is the medial ~quarter of the forefoot: the web lies 12–42 % across from the
+      // medial edge (the clefts between the lesser toes, often further back, are further out)
+      let last = prof.length - 1;
+      while (last > 0 && prof[last].h <= 2) last--;
+      const across = (valley * 0.5) / Math.max(1, last * 0.5);
+      if (depth > 3 && valley > crown && prof[valley].h < prof[crown].h - 3 && across > 0.12 && across < 0.42) found.push({ b, a: prof[valley].a });
+    }
+    // the cleft must continue forward (8 mm) from its base
+    for (let i = 0; i < found.length; i++) {
+      const run = found.filter((f) => f.b >= found[i].b && f.b <= found[i].b + 8);
+      if (run.length >= 7) {
+        const as = run.map((f) => f.a).sort((x, y) => x - y);
+        return [as[as.length >> 1], found[i].b + 5];
+      }
+    }
+    return null;
+  };
+  const web = foot.hasDorsum ? toeWeb() : null;
+  const post = web ?? toePost();
   const thong = p.kind === 'chappal' && p.chappalStyle !== 'slide';
   const splitToe = p.kind === 'chappal' && p.chappalStyle === 'splitToe';
   /** Distance to the split-toe slot axis (Infinity without a slot). */
@@ -676,7 +730,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   /** A strap / wing sheet: smooth and solid, or an open lattice panel with a solid border. */
   const addSheet = (rows: Section[], back: (u: number) => number, front: (u: number) => number, t: number) => {
     if (p.strapPattern === 'lattice') {
-      const panel = archPanel({ rows, back, front, thickness: t, border: 7, cell: Math.max(7, p.cellSize * 1.4), radius: r, toWorld });
+      const panel = archPanel({ rows, back, front, thickness: t, border: 7, cell: Math.max(7, p.cellSize * 1.4), radius: r, toWorld, detail: det.surface });
       for (const m of panel.solids) {
         strapSolids.push(solids.length);
         solids.push(m);
@@ -684,7 +738,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       appendLattice(lattice, panel.lattice);
     } else {
       strapSolids.push(solids.length);
-      solids.push(archSheet({ rows, back, front, thickness: pillow(t), toWorld }));
+      solids.push(archSheet({ rows, back, front, thickness: pillow(t), toWorld, M: 56 * det.surface, N: 40 * det.surface }));
     }
   };
 
@@ -719,26 +773,32 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       const top = sectionBetween(rows, bJ - 3);
       const start: [number, number, number] = [top.ac, bJ - 3, top.zBase + top.hs + t / 2];
       const zT = at(T, post[0], post[1]);
-      const n = 24;
+      const n = 24 * det.surface;
       const path: [number, number, number][] = [];
       for (let i = 0; i <= n; i++) {
         const f = i / n, e = f * f * (3 - 2 * f);
         const a = start[0] + (post[0] - start[0]) * e, b = start[1] + (post[1] - start[1]) * f;
-        const need = hcAt(a, b);
+        // clear of the foot across the ridge's whole width (it passes over the toes near the post)
+        const w = 20 - 10 * f, da = post[0] - start[0], db = post[1] - start[1], dl = Math.hypot(da, db) || 1;
+        let need = -Infinity;
+        for (let q = -0.5; q <= 0.5; q += 0.1) {
+          const v = hcAt(a + (-db / dl) * q * (w + 2), b + (da / dl) * q * (w + 2));
+          if (Number.isFinite(v)) need = Math.max(need, v);
+        }
         const zLine = start[2] + (zT + 9 - start[2]) * Math.pow(f, 1.4);
-        path.push([a, b, Math.max(zLine, Number.isFinite(need) ? need + t / 2 + 0.6 : -Infinity)]);
+        path.push([a, b, Math.max(zLine, need + t / 2 + 0.6)]);
       }
       // (keep it a smooth, falling line)
       for (let i = n - 1; i >= 0; i--) path[i][2] = Math.max(path[i][2], path[i + 1][2]);
       const zEnd = path[n][2];
       strapSolids.push(solids.length);
-      solids.push(sweepRounded(path, path.map(() => [0, 0, 1]), path.map((_, i) => 20 - 10 * (i / n)), path.map((_, i) => t + 1.5 * (i / n)), toWorld, 24, 3));
+      solids.push(sweepRounded(path, path.map(() => [0, 0, 1]), path.map((_, i) => 20 - 10 * (i / n)), path.map((_, i) => t + 1.5 * (i / n)), toWorld, 24 * det.surface, 3));
       // post: rounded, longer along the foot than across, flaring into the footbed and tapering up
       const zPost0 = at(plateTop, post[0], post[1]);
       postSolid = solids.length;
       solids.push(sweepRounded(
         [[post[0], post[1], zPost0], [post[0], post[1], zT + 1], [post[0], post[1], (zT + zEnd) / 2], [post[0], post[1], zEnd + 1]],
-        [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]], [10, 9, 7, 7], [16, 14, 11, 10], toWorld, 24, 3,
+        [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]], [7, 6, 5.5, 5.5], [14, 12, 10, 9], toWorld, 24 * det.surface, 3,
       ));
     }
   }
@@ -861,10 +921,14 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     let worst = Infinity;
     for (let z = pz0; z < pz0 + 25; z += 1) {
       const [x, y] = frameToWorld(frame, post[0], post[1]);
-      worst = Math.min(worst, scanProbe(x, y, z).gap - 3.5);
+      worst = Math.min(worst, scanProbe(x, y, z).gap - 2.75);
     }
-    if (worst < FOOTWEAR_RULES.clearance.min) {
-      warnings.push('The toe post overlaps the toes on this scan (the 1st and 2nd toes are not separated in the scan). It is meant to sit in the web between them.');
+    if (!web) {
+      warnings.push(foot.hasDorsum
+        ? 'The web between the 1st and 2nd toes isn\'t visible on this scan (toes pressed together?), so the toe post is placed from the M1/M5 landmarks. Check where it sits.'
+        : 'This scan has no top of the foot, so the toe post is placed from the M1/M5 landmarks, not from the web between the 1st and 2nd toes. Check where it sits.');
+    } else if (worst < -1) {
+      warnings.push(`The toe post sits in the web between the 1st and 2nd toes, but the gap there is narrower than the post: it presses about ${(-worst).toFixed(1)} mm into the toes.`);
     }
   }
   const R = FOOTWEAR_RULES;
@@ -888,7 +952,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     },
   ];
 
-  const latticeMesh = latticeToMesh(lattice);
+  const latticeMesh = latticeToMesh(lattice, det.strutSides);
   const mesh = concatMeshes([...solids, latticeMesh]);
   return {
     mesh: makeMesh(mesh.positions, mesh.indices),

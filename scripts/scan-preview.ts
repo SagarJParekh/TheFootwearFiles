@@ -62,11 +62,16 @@ const lm = {
 };
 console.log(`foot ${L.toFixed(0)} mm, ${right ? 'right' : 'left'}`);
 writeFileSync(join(out, 'foot.stl'), stl(mesh));
-const foot = prepareFootData(samplePlantarSurface(P, mesh.indices, lm), P, mesh.indices);
+const H = Number(process.env.GRID ?? 1);
+const t0 = Date.now();
+const foot = prepareFootData(samplePlantarSurface(P, mesh.indices, lm, H), P, mesh.indices);
+console.log('foot data', Date.now() - t0, 'ms at grid', H);
 for (const st of styles) {
   const p = defaultFootwearParams(8, st === 'shoe' ? 'shoe' : 'chappal');
   if (st !== 'shoe') p.chappalStyle = st as ChappalStyle;
+  const t1 = Date.now();
   const r = generateFootwear(foot, p);
+  console.log('  generate', Date.now() - t1, 'ms', r.mesh.indices.length / 3, 'tris');
   const m = concatMeshes([...r.parts.solids, latticeToMesh(r.parts.lattice, 6, true)]);
   writeFileSync(join(out, `${st}.stl`), stl(makeMesh(m.positions, m.indices)));
   console.log(st, `${r.length.toFixed(0)}×${r.width.toFixed(0)}`, r.rules.map((x) => `${x.ok ? 'ok' : 'FAIL'} ${x.value}`).join(' | '), r.upperGap ? `upper gap ${r.upperGap.min.toFixed(1)}–${r.upperGap.max.toFixed(1)}` : '');

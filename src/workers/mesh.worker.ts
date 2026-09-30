@@ -32,26 +32,31 @@ import type { InsoleParams } from '../core/insole/params';
 import type { FrameLandmarks } from '../core/insole/frame';
 import { generateFootwear, prepareFootData, type FootData, type FootwearResult } from '../core/footwear/generate';
 import { mergeFootwear } from '../core/footwear/merge';
+import { MESH_DETAIL, type MeshDetail } from '../core/detail';
 import type { FootwearParams } from '../core/footwear/params';
 
 // Plantar surface sampling is the slow part (rasterising the whole scan) – cache the latest.
-let plantarCache: { key: string; surface: PlantarSurface } | null = null;
-function plantarSurface(mesh: MeshData, transform: RigidTransform, landmarks: FrameLandmarks): PlantarSurface {
-  const key = `${mesh.id}|${JSON.stringify(transform)}|${JSON.stringify(landmarks)}`;
-  if (plantarCache?.key !== key) {
-    plantarCache = { key, surface: samplePlantarSurface(transformPositions(mesh.positions, transform), mesh.indices, landmarks) };
+// (a few entries: the insole and the footwear may use different mesh detail = grid spacing)
+const plantarCache = new Map<string, PlantarSurface>();
+function plantarSurface(mesh: MeshData, transform: RigidTransform, landmarks: FrameLandmarks, detail: MeshDetail = 'standard'): PlantarSurface {
+  const key = `${mesh.id}|${JSON.stringify(transform)}|${JSON.stringify(landmarks)}|${detail}`;
+  let surface = plantarCache.get(key);
+  if (!surface) {
+    surface = samplePlantarSurface(transformPositions(mesh.positions, transform), mesh.indices, landmarks, MESH_DETAIL[detail].grid);
+    if (plantarCache.size >= 3) plantarCache.delete(plantarCache.keys().next().value!);
+    plantarCache.set(key, surface);
   }
-  return plantarCache.surface;
+  return surface;
 }
 
 export type InsoleOutput = Omit<InsoleResult, 'mesh'> & { mesh: MeshData; normals: Float32Array };
 
 // Footwear: per-scan data (dorsum raster, silhouette, BVH) and the last generated parts (for export).
 let footCache: { key: string; data: FootData } | null = null;
-function footData(mesh: MeshData, transform: RigidTransform, landmarks: FrameLandmarks): FootData {
-  const key = `${mesh.id}|${JSON.stringify(transform)}|${JSON.stringify(landmarks)}`;
+function footData(mesh: MeshData, transform: RigidTransform, landmarks: FrameLandmarks, detail: MeshDetail): FootData {
+  const key = `${mesh.id}|${JSON.stringify(transform)}|${JSON.stringify(landmarks)}|${detail}`;
   if (footCache?.key !== key) {
-    const surface = plantarSurface(mesh, transform, landmarks);
+    const surface = plantarSurface(mesh, transform, landmarks, detail);
     footCache = { key, data: prepareFootData(surface, transformPositions(mesh.positions, transform), mesh.indices) };
   }
   return footCache.data;
@@ -59,7 +64,7 @@ function footData(mesh: MeshData, transform: RigidTransform, landmarks: FrameLan
 let lastFootwear: { key: string; result: FootwearResult } | null = null;
 function footwear(mesh: MeshData, transform: RigidTransform, landmarks: FrameLandmarks, params: FootwearParams): FootwearResult {
   const key = `${mesh.id}|${JSON.stringify(transform)}|${JSON.stringify(landmarks)}|${JSON.stringify(params)}`;
-  if (lastFootwear?.key !== key) lastFootwear = { key, result: generateFootwear(footData(mesh, transform, landmarks), params) };
+  if (lastFootwear?.key !== key) lastFootwear = { key, result: generateFootwear(footData(mesh, transform, landmarks, params.detail), params) };
   return lastFootwear.result;
 }
 
@@ -226,7 +231,7 @@ const api = {
 
   /** Generates the insole / orthosis solid (world coordinates) for the given parameters. */
   async generateInsole(ref: MeshRef, transform: RigidTransform, landmarks: FrameLandmarks, params: InsoleParams): Promise<InsoleOutput> {
-    const r = generateInsole(plantarSurface(resolve(ref), transform, landmarks), params);
+    const r = generateInsole(plantarSurface(resolve(ref), transform, landmarks, params.detail), params);
     const normals = computeVertexNormals(r.mesh);
     return Comlink.transfer(transferMesh({ ...r, normals }, r.mesh), [normals.buffer]);
   },
@@ -245,7 +250,7 @@ const api = {
    */
   async exportFootwearStl(ref: MeshRef, transform: RigidTransform, landmarks: FrameLandmarks, params: FootwearParams, merge: boolean): Promise<ArrayBuffer> {
     const r = footwear(resolve(ref), transform, landmarks, params);
-    const mesh = merge ? mergeFootwear(await manifold(), r.parts) : r.mesh;
+    const mesh = merge ? mergeFootwear(await manifold(), r.parts, MESH_DETAIL[params.detail].strutSides) : r.mesh;
     const buf = writeBinaryStl({ positions: mesh.positions, indices: mesh.indices });
     return Comlink.transfer(buf, [buf]);
   },

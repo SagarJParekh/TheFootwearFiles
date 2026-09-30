@@ -12,6 +12,8 @@
  * document and undoable.
  */
 
+import { normalizeDetail, type MeshDetail } from '../detail';
+
 export type InsoleType = 'full' | 'threeQuarter';
 export type WedgeType = 'heel' | 'forefoot' | 'full';
 export type WedgeSide = 'medial' | 'lateral';
@@ -24,6 +26,8 @@ export type MetatarsalId = 'MT-1' | 'MT-2' | 'MT-3' | 'MT-4' | 'MT-5';
 export interface InsoleParams {
   /** Manufacturing type, chosen before designing. */
   type: InsoleType;
+  /** Mesh detail of the generated insole (surface grid). */
+  detail: MeshDetail;
   /** UK shoe size (adult), decides the insole length. */
   shoeSizeUK: number;
   narrowProfile: boolean;
@@ -90,6 +94,7 @@ export const METATARSALS: MetatarsalId[] = ['MT-1', 'MT-2', 'MT-3', 'MT-4', 'MT-
 export function defaultInsoleParams(shoeSizeUK = 8, type: InsoleType = 'full'): InsoleParams {
   return {
     type,
+    detail: 'standard',
     shoeSizeUK,
     narrowProfile: false,
     paddingClearance: 2.5,
@@ -132,6 +137,7 @@ export function normalizeInsoleParams(raw: unknown): InsoleParams {
     ...d,
     ...pick(r, ['narrowProfile', 'heelCupHeight', 'mtSmoothing']),
     type,
+    detail: normalizeDetail(r.detail),
     paddingClearance: typeof r.paddingClearance === 'number' ? r.paddingClearance : typeof r.paddingThickness === 'number' ? r.paddingThickness : d.paddingClearance,
     wedge: { ...d.wedge, ...(r.wedge ?? {}) },
     mtPad: { ...d.mtPad, ...(r.mtPad ?? {}) },
