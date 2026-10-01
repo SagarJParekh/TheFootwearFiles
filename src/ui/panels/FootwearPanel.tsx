@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { UK_SIZES, insoleLengthMm } from '../../core/insole/params';
 import {
   CHAPPAL_STYLE_LABEL, FOOTWEAR_RANGES as R, FOOTWEAR_RULES, REFERENCE_DESIGNS, SIDE_WALL_LABEL, STRAP_PATTERN_LABEL, TREAD_LABEL, UPPER_PATTERN_LABEL,
+  SHOE_FINISH_LABEL, type ShoeFinish,
   type ChappalStyle, type DesignId, type FootwearKind, type FootwearParams, type SideWall, type StrapPattern, type TreadPattern, type UpperPattern,
 } from '../../core/footwear/params';
 import { applyFootwearDesign, requestAnkleLandmarks, exportFootwearStl, footwearGesture, setFootwearEnabled, setFootwearKind, updateFootwear } from '../../state/footwearActions';
@@ -180,10 +181,21 @@ export function FootwearPanel({ ready }: { ready: boolean }) {
           ) : (
             <>
               <div className="field-group-label">Upper</div>
+              <SelectField<ShoeFinish>
+                label="Upper finish"
+                value={p.shoe.finish}
+                options={SHOE_FINISH_LABEL}
+                onChange={(v) => updateFootwear(v === 'lattice' ? 'Lattice finish' : 'Solid design', (q) => ({ ...q, shoe: { ...q.shoe, finish: v } }))}
+                testId="fw-finish"
+              />
+              <div className="hint" style={{ marginTop: -4 }}>
+                Design the shoe as a smooth <b>solid</b> first (shape, collar, sole, fit); switch to <b>lattice</b> at the end – then only the lattice settings (strut, cell, pattern, sole side wall, collar rim band) change.
+              </div>
+              <Slider label="Upper wall thickness" range={R.shoeWall} value={p.shoe.wall} set={(q, v) => ({ ...q, shoe: { ...q.shoe, wall: v } })} testId="fw-shoe-wall" />
               <SelectField<UpperPattern> label="Upper lattice" value={p.upperPattern} options={UPPER_PATTERN_LABEL} onChange={(v) => updateFootwear('Upper pattern', (q) => ({ ...q, upperPattern: v }))} />
               <Slider label="Collar height (above the footbed)" range={R.collarHeight} value={p.shoe.collarHeight} set={(q, v) => ({ ...q, shoe: { ...q.shoe, collarHeight: v } })} />
               <Slider label="Throat (opening ends, fraction of length)" range={R.throat} value={p.shoe.throat} set={(q, v) => ({ ...q, shoe: { ...q.shoe, throat: v } })} />
-              <Slider label="Collar rim diameter (solid)" range={R.collarDiameter} value={p.shoe.collarDiameter} set={(q, v) => ({ ...q, shoe: { ...q.shoe, collarDiameter: v } })} />
+              <Slider label="Collar rim band (lattice finish)" range={R.collarDiameter} value={p.shoe.collarDiameter} set={(q, v) => ({ ...q, shoe: { ...q.shoe, collarDiameter: v } })} />
               <Slider label="Collar rim below the malleoli" range={R.malleolusGap} value={p.shoe.malleolusGap} set={(q, v) => ({ ...q, shoe: { ...q.shoe, malleolusGap: v } })} testId="fw-malleolus-gap" />
               {!(doc.landmarks.medialMalleolus && doc.landmarks.lateralMalleolus) && (
                 <div className="hint warn" data-testid="fw-malleoli-missing">

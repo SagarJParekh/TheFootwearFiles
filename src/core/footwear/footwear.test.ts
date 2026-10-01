@@ -228,43 +228,77 @@ describe('footwear generator', () => {
     expect(minGap(foot, split, 4)).toBeGreaterThanOrEqual(1 - 0.03);
   });
 
-  it('shoe: enclosed standard-shape lattice upper around the foot with an ankle opening, rules met', () => {
+  it('shoe, solid design: one smooth closed body around the foot – snug heel, closed toe and heel, ankle opening', () => {
     const r = gen(() => {}, 'shoe');
     expect(r.kind).toBe('shoe');
-    expect(r.parts.solids).toHaveLength(1); // outsole; the sole wall (cage) and the upper are lattice
-    for (const s of r.parts.solids) expect(consistent(s)).toBe(true);
-    // double-skin upper (like the reference shoes): over the forefoot there are nodes in two
-    // layers, one shell (0.6 × cell) apart
-    {
-      const l = r.parts.lattice, f = foot.surface.frame;
-      const zs: number[] = [];
-      for (let v = 0; v < l.nodes.length / 3; v++) {
-        const [a, b] = worldToFrame(f, l.nodes[3 * v], l.nodes[3 * v + 1]);
-        if (Math.abs(a) < 8 && b > 150 && b < 170 && l.nodes[3 * v + 2] > 35) zs.push(l.nodes[3 * v + 2]);
+    expect(r.parts.solids).toHaveLength(1); // upper, midsole and sole are ONE piece
+    expect(r.strutCount).toBe(0); // (lattice only as the finish)
+    const body = r.parts.solids[0];
+    expect(analyzeMesh(body).watertight && consistent(body)).toBe(true);
+    expect(r.rules.every((x) => x.ok), r.rules.map((x) => `${x.rule}: ${x.value}`).join(' | ')).toBe(true);
+    expect(minGap(foot, r)).toBeGreaterThanOrEqual(1 - 0.1);
+    const f = foot.surface.frame, P = body.positions;
+    const topIn = (bLo: number, bHi: number, aMax = 15) => {
+      let z = -Infinity;
+      for (let i = 0; i < P.length; i += 3) {
+        const [a, b] = worldToFrame(f, P[i], P[i + 1]);
+        if (Math.abs(a) < aMax && b > bLo && b < bHi) z = Math.max(z, P[i + 2]);
       }
-      expect(Math.max(...zs) - Math.min(...zs)).toBeGreaterThan(3);
+      return z;
+    };
+    expect(topIn(150, 170)).toBeGreaterThan(35); // closed over the forefoot dorsum
+    expect(topIn(10, 40, 8)).toBeLessThan(topIn(150, 170) + 30); // the ankle opening (no lid over the heel)
+    // closed at the toe and the heel: material in front of the toes and behind the heel, at mid height
+    const probe = footProbe(foot);
+    let front = 0, back = 0, heelGap = Infinity, bMax = -Infinity;
+    for (let i = 0; i < P.length; i += 3) bMax = Math.max(bMax, worldToFrame(f, P[i], P[i + 1])[1]);
+    for (let i = 0; i < P.length; i += 3) {
+      const [a, b] = worldToFrame(f, P[i], P[i + 1]);
+      if (Math.abs(a) > 10 || P[i + 2] < 12 || P[i + 2] > 30) continue;
+      if (b > bMax - 12) front++;
+      if (b < 0) {
+        back++;
+        heelGap = Math.min(heelGap, probe(P[i], P[i + 1], P[i + 2]).gap);
+      }
     }
-    expect(r.strutCount).toBeGreaterThan(gen().strutCount);
-    expect(r.rules.every((x) => x.ok)).toBe(true);
-    expect(minGap(foot, r)).toBeGreaterThanOrEqual(1 - 0.01);
-    // upper reaches over the forefoot dorsum, but not over the ankle (collar opening)
+    expect(front).toBeGreaterThan(10);
+    expect(back).toBeGreaterThan(10);
+    // snug heel: the inside of the heel counter is close to the foot (clearance + a little)
+    expect(heelGap).toBeLessThan(1.5 + 3);
+  });
+
+  it('shoe, lattice finish: double-skin lattice over the whole upper, solid bands, rules met', () => {
+    const r = gen((p) => (p.shoe.finish = 'lattice'), 'shoe');
+    expect(r.parts.solids).toHaveLength(1); // the solid bands: outsole, sole side wall, collar rim
+    expect(analyzeMesh(r.parts.solids[0]).watertight).toBe(true);
+    expect(r.strutCount).toBeGreaterThan(gen().strutCount); // midsole + upper lattice
+    expect(r.strut).toEqual({ min: 1.5, max: 1.5 });
+    expect(r.rules.every((x) => x.ok), r.rules.map((x) => `${x.rule}: ${x.value}`).join(' | ')).toBe(true);
+    expect(minGap(foot, r)).toBeGreaterThanOrEqual(1 - 0.1);
+    // the lattice covers the toe and the heel (no open ends) and has two skins
     const l = r.parts.lattice, f = foot.surface.frame;
-    let foreTop = -Infinity, midTop = -Infinity, heelTop = -Infinity;
+    let toe = 0, heel = 0, bMax = -Infinity;
+    const zs: number[] = [];
+    for (let v = 0; v < l.nodes.length / 3; v++) bMax = Math.max(bMax, worldToFrame(f, l.nodes[3 * v], l.nodes[3 * v + 1])[1]);
     for (let v = 0; v < l.nodes.length / 3; v++) {
       const [a, b] = worldToFrame(f, l.nodes[3 * v], l.nodes[3 * v + 1]);
-      if (Math.abs(a) < 15 && b > 150 && b < 170) foreTop = Math.max(foreTop, l.nodes[3 * v + 2]);
-      if (Math.abs(a) < 15 && b > 115 && b < 130) midTop = Math.max(midTop, l.nodes[3 * v + 2]);
-      if (Math.abs(a) < 15 && b > 10 && b < 40) heelTop = Math.max(heelTop, l.nodes[3 * v + 2]); // ankle
+      const z = l.nodes[3 * v + 2];
+      if (Math.abs(a) < 12 && b > bMax - 15 && z > 12) toe++;
+      if (Math.abs(a) < 12 && b < 5 && z > 20) heel++;
+      if (Math.abs(a) < 8 && b > 150 && b < 170 && z > 35) zs.push(z);
     }
-    expect(foreTop).toBeGreaterThan(35); // over the dorsum of the forefoot
-    expect(midTop).toBeGreaterThan(45); // and the midfoot: enclosed up to the ankle opening
-    expect(heelTop).toBeLessThan(35); // opening over the heel/ankle: nothing above the footbed there
+    expect(toe).toBeGreaterThan(5);
+    expect(heel).toBeGreaterThan(5);
+    expect(Math.max(...zs) - Math.min(...zs)).toBeGreaterThan(2);
   });
 
   it('side wall options and tread', () => {
-    const solid = gen((p) => (p.sideWall = 'solid'), 'shoe');
-    expect(solid.parts.solids).toHaveLength(2); // outsole + solid rim wall
+    const solid = gen((p) => { p.sideWall = 'solid'; p.shoe.finish = 'lattice'; }, 'shoe');
+    const cageShoe = gen((p) => { p.sideWall = 'lattice'; p.shoe.finish = 'lattice'; }, 'shoe');
     expect(solid.rules.every((x) => x.ok)).toBe(true);
+    // a solid side wall is more solid band and fewer upper struts than a lattice one
+    expect(signedVolume(solid.parts.solids[0])).toBeGreaterThan(signedVolume(cageShoe.parts.solids[0]));
+    expect(solid.strutCount).toBeLessThan(cageShoe.strutCount);
     const cage = gen((p) => (p.sideWall = 'lattice'));
     expect(cage.parts.solids).toHaveLength(2); // outsole + strap
     expect(cage.rules.every((x) => x.ok)).toBe(true);
@@ -308,7 +342,7 @@ describe('footwear generator', () => {
     expect(panel.parts.solids.length).toBe(solid.parts.solids.length + 3);
     expect(panel.strutCount).toBeGreaterThan(solid.strutCount + 100);
     // diamond shoe uppers: no struts along the sections, so fewer struts than the grid
-    const grid = gen((p) => (p.upperPattern = 'grid'), 'shoe'), diamond = gen((p) => (p.upperPattern = 'diamond'), 'shoe');
+    const grid = gen((p) => { p.upperPattern = 'grid'; p.shoe.finish = 'lattice'; }, 'shoe'), diamond = gen((p) => { p.upperPattern = 'diamond'; p.shoe.finish = 'lattice'; }, 'shoe');
     expect(diamond.strutCount).toBeLessThan(grid.strutCount);
     expect(diamond.rules.every((x) => x.ok)).toBe(true);
   });
@@ -423,7 +457,7 @@ describe('footwear generator', () => {
       expect(r.warnings.join(' ')).toMatch(/estimated foot shape/);
       expect(r.rules.every((x) => x.ok)).toBe(true);
       if (kind === 'chappal') expect(r.parts.solids.length).toBe(style === 'slide' ? 3 : 5); // outsole, rim, strap / wings, ridge, post
-      else expect(r.strutCount).toBeGreaterThan(8000); // sole + enclosed upper
+      else expect(r.parts.solids).toHaveLength(1); // one closed shoe body
     }
     // the estimated dorsum is foot-shaped: highest over the instep, low at the toes
     const g = f.surface.grid, fr = f.surface.frame;

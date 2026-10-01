@@ -112,7 +112,13 @@ try {
   await page.check('[data-testid=fw-kind-shoe]');
   await settle();
   s = await state();
-  check(s.kind === 'shoe' && s.p.sideWall === 'lattice' && s.upperGap?.min >= 0.97 && rulesOk(s), `shoe: double-skin lattice upper on a lattice sole wall, rules met (footbed ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm, upper ${s.upperGap?.min.toFixed(1)}–${s.upperGap?.max.toFixed(1)} mm from the foot)`);
+  check(s.kind === 'shoe' && s.p.shoe.finish === 'solid' && s.struts === 0 && rulesOk(s), `shoe: designed as one smooth solid first, rules met (footbed ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm)`);
+  await page.selectOption('[data-testid=fw-finish]', 'lattice');
+  await settle();
+  s = await state();
+  check(s.p.shoe.finish === 'lattice' && s.struts > 3000 && s.upperGap?.min >= 0.97 && rulesOk(s), `shoe: lattice finish at the end (${s.struts} struts, upper ${s.upperGap?.min.toFixed(1)}–${s.upperGap?.max.toFixed(1)} mm from the foot), rules met`);
+  await page.keyboard.press('Control+z');
+  await settle();
   check(await page.isVisible('[data-testid=fw-malleoli-missing]'), 'shoe: prompts for the malleolus landmarks');
   await page.selectOption('[data-testid=fw-design]', 'knitSlipOn');
   await settle();
@@ -170,7 +176,7 @@ try {
   await page.check('[data-testid=fw-kind-shoe]');
   await settle();
   s = await state();
-  check(s.kind === 'shoe' && s.struts > 8000 && rulesOk(s), `plantar scan: enclosed shoe upper (${s.struts} struts, clearance ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm)`);
+  check(s.kind === 'shoe' && s.struts === 0 && rulesOk(s), `plantar scan: enclosed solid shoe ( clearance ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm)`);
   check(errors.length === 0, `no page errors ${errors.join('; ')}`);
 } catch (e) {
   console.error(e);

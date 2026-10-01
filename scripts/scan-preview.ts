@@ -10,7 +10,7 @@ import { finishImport } from '../src/formats/finishImport';
 import { formatForFile } from '../src/formats/registry';
 import { parseObjModel, parseStlModel } from '../src/formats/workerParsers';
 import { samplePlantarSurface } from '../src/core/insole/generate';
-import { worldToFrame } from '../src/core/insole/frame';
+import { worldToFrame, type FrameLandmarks } from '../src/core/insole/frame';
 import { fuseFootwearSolids, generateFootwear, prepareFootData } from '../src/core/footwear/generate';
 import { concatMeshes, latticeToMesh } from '../src/core/footwear/lattice';
 import { defaultFootwearParams, type ChappalStyle } from '../src/core/footwear/params';
@@ -55,22 +55,37 @@ const band = (y: number) => sole.filter((p) => Math.abs(p[1] - y) < 4).map((p) =
 const x1 = band(y0 + 0.72 * L), x5 = band(y0 + 0.64 * L), xh = band(y0 + 0.15 * L).sort((a, b) => a - b);
 let tipX = 0, tipY = -Infinity;
 for (const p of sole) if (p[1] > tipY) [tipX, tipY] = [p[0], p[1]];
-const right = tipX < (Math.min(...xh) + Math.max(...xh)) / 2; // big toe medial
+const right = process.env.SIDE ? process.env.SIDE === 'right' : tipX < (Math.min(...xh) + Math.max(...xh)) / 2; // big toe medial
 const mn = (a: number[]) => a.reduce((p, q) => Math.min(p, q), Infinity), mx = (a: number[]) => a.reduce((p, q) => Math.max(p, q), -Infinity);
-const lm = {
+const lm: Record<string, Vec3 | null> = {
   heelCentre: near(xh[xh.length >> 1], y0 + 0.15 * L),
   met1Head: near(right ? mn(x1) + 10 : mx(x1) - 10, y0 + 0.72 * L),
   met5Head: near(right ? mx(x5) - 8 : mn(x5) + 8, y0 + 0.64 * L),
 };
+if (process.env.MALL) {
+  // malleoli: the most prominent points either side of the ankle (heel region, 45–85 mm up)
+  let med: Vec3 | null = null, lat: Vec3 | null = null;
+  const sm = right ? -1 : 1;
+  for (let i = 0; i < P.length; i += 3) {
+    const x = P[i], y = P[i + 1], z = P[i + 2];
+    if (y < y0 + 0.08 * L || y > y0 + 0.3 * L || z < 45 || z > 85) continue;
+    if (!med || sm * x > sm * med[0]) med = [x, y, z];
+    if (!lat || -sm * x > -sm * lat[0]) lat = [x, y, z];
+  }
+  Object.assign(lm, { medialMalleolus: med, lateralMalleolus: lat });
+  console.log('malleoli MM', med?.map((v) => v.toFixed(0)).join(','), 'LM', lat?.map((v) => v.toFixed(0)).join(','));
+}
 console.log(`foot ${L.toFixed(0)} mm, ${right ? 'right' : 'left'}`);
 writeFileSync(join(out, 'foot.stl'), stl(mesh));
 const H = Number(process.env.GRID ?? 1);
 const t0 = Date.now();
-const foot = prepareFootData(samplePlantarSurface(P, mesh.indices, lm, H), P, mesh.indices);
+const foot = prepareFootData(samplePlantarSurface(P, mesh.indices, lm as unknown as FrameLandmarks, H), P, mesh.indices);
 console.log('foot data', Date.now() - t0, 'ms at grid', H);
 for (const st of styles) {
-  const p = defaultFootwearParams(8, st === 'shoe' ? 'shoe' : 'chappal');
-  if (st !== 'shoe') p.chappalStyle = st as ChappalStyle;
+  const isShoe = st.startsWith('shoe');
+  const p = defaultFootwearParams(8, isShoe ? 'shoe' : 'chappal');
+  if (!isShoe) p.chappalStyle = st as ChappalStyle;
+  if (st === 'shoeLattice') p.shoe.finish = 'lattice';
   const t1 = Date.now();
   const r = generateFootwear(foot, p);
   console.log('  generate', Date.now() - t1, 'ms', r.mesh.indices.length / 3, 'tris');
@@ -87,5 +102,5 @@ for (const st of styles) {
     }
     writeFileSync(join(out, `${st}-fused.stl`), stl(concatMeshes([f, latticeToMesh(r.parts.lattice, 6, true)])));
   }
-  console.log(st, `${r.length.toFixed(0)}×${r.width.toFixed(0)}`, r.rules.map((x) => `${x.ok ? 'ok' : 'FAIL'} ${x.value}`).join(' | '), r.upperGap ? `upper gap ${r.upperGap.min.toFixed(1)}–${r.upperGap.max.toFixed(1)}` : '');
+  console.log(st, `${r.length.toFixed(0)}×${r.width.toFixed(0)}`, r.rules.map((x) => `${x.ok ? 'ok' : 'FAIL'} ${x.value}`).join(' | '), r.upperGap ? `upper gap ${r.upperGap.min.toFixed(1)}–${r.upperGap.max.toFixed(1)}` : '', r.ankle ? JSON.stringify(r.ankle) : '', r.warnings.join(' / ').slice(0, 120));
 }

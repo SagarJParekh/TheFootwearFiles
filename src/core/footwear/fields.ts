@@ -52,7 +52,7 @@ export function rasterizeHighestSurface(worldPositions: Float32Array, indices: U
 }
 
 /** 1D squared Euclidean distance transform (Felzenszwalb & Huttenlocher). */
-function edt1d(f: Float64Array, n: number, d: Float64Array, v: Int32Array, zz: Float64Array): void {
+export function edt1d(f: Float64Array, n: number, d: Float64Array, v: Int32Array, zz: Float64Array): void {
   let k = 0;
   v[0] = 0;
   zz[0] = -Infinity;

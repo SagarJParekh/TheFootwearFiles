@@ -15,6 +15,7 @@ export type FootwearKind = 'shoe' | 'chappal';
 export type ChappalStyle = 'slide' | 'thong' | 'splitToe';
 export type TreadPattern = 'none' | 'hexagon' | 'diamond' | 'waves';
 export type SideWall = 'solid' | 'lattice';
+export type ShoeFinish = 'solid' | 'lattice';
 /** Chappal straps / wings: a smooth solid sheet, or an open lattice panel with a solid border. */
 export type StrapPattern = 'solid' | 'lattice';
 /** Shoe upper lattice: triangulated grid, or diamonds (a knit look). */
@@ -72,7 +73,17 @@ export interface FootwearParams {
    * Shoe upper: collar height above the footbed, throat position (fraction of length), collar rim
    * diameter, and how far the top of the collar rim stays below each malleolus (when placed).
    */
-  shoe: { collarHeight: number; throat: number; collarDiameter: number; malleolusGap: number };
+  shoe: {
+    collarHeight: number;
+    throat: number;
+    /** Lattice finish: height of the solid collar rim band (mm). */
+    collarDiameter: number;
+    malleolusGap: number;
+    /** Upper wall thickness (mm). */
+    wall: number;
+    /** Design the shoe as a smooth solid first; switch to lattice at the end. */
+    finish: ShoeFinish;
+  };
 }
 
 export const FOOTWEAR_RULES = {
@@ -96,7 +107,8 @@ export const FOOTWEAR_RANGES = {
   thongArmWidth: { min: 25, max: 80, step: 1, unit: 'mm' },
   collarHeight: { min: 25, max: 90, step: 1, unit: 'mm' },
   throat: { min: 0.4, max: 0.75, step: 0.01 },
-  collarDiameter: { min: 2, max: 4, step: 0.1, unit: 'mm' },
+  collarDiameter: { min: 2, max: 12, step: 0.5, unit: 'mm' },
+  shoeWall: { min: 2.5, max: 8, step: 0.1, unit: 'mm' },
   malleolusGap: { min: 3, max: 15, step: 0.5, unit: 'mm' },
 } satisfies Record<string, Range>;
 
@@ -124,7 +136,7 @@ export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chap
     strapPattern: 'solid',
     upperPattern: 'grid',
     thongArmWidth: 55,
-    shoe: { collarHeight: 55, throat: 0.45, collarDiameter: 3, malleolusGap: 5 },
+    shoe: { collarHeight: 55, throat: 0.45, collarDiameter: 5, malleolusGap: 5, wall: 4, finish: 'solid' },
   };
 }
 
@@ -167,6 +179,8 @@ export function normalizeFootwearParams(raw: unknown): FootwearParams {
       throat: clampTo(r.shoe?.throat, R.throat, d.shoe.throat),
       collarDiameter: clampTo(r.shoe?.collarDiameter, R.collarDiameter, d.shoe.collarDiameter),
       malleolusGap: clampTo(r.shoe?.malleolusGap, R.malleolusGap, d.shoe.malleolusGap),
+      wall: clampTo(r.shoe?.wall, R.shoeWall, d.shoe.wall),
+      finish: r.shoe?.finish === 'lattice' ? 'lattice' : 'solid',
     },
   };
 }
@@ -218,3 +232,5 @@ export const REFERENCE_DESIGNS: Record<Exclude<DesignId, 'custom'>, { kind: Foot
     set: (p) => ({ ...p, upperPattern: 'diamond', sideWall: 'lattice', cellSize: 6, soleThickness: 9, tread: 'diamond', shoe: { ...p.shoe, collarHeight: 55, throat: 0.45 } }),
   },
 };
+
+export const SHOE_FINISH_LABEL: Record<ShoeFinish, string> = { solid: 'Solid (design the shape first)', lattice: 'Lattice (final)' };

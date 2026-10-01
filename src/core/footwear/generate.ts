@@ -31,10 +31,11 @@ import { fillHoles } from '../mesh/fill/fillHoles';
 import { rasterizeHighestSurface, signedDistance, sphericalDilate, sphericalErode } from './fields';
 import { estimateDorsum } from './dorsum';
 import { appendLattice, concatMeshes, conformalLattice, emptyLattice, latticeToMesh, sampleGrid, type Lattice } from './lattice';
-import { archPanel, archSheet, fitArchHeight, rowExtent, sectionBetween, sectionLattice, smoothAbove, smoothEnvelope, footprintOutline, sweepRounded, type Section } from './shape';
+import { archPanel, archSheet, fitArchHeight, rowExtent, sectionBetween, smoothAbove, smoothEnvelope, footprintOutline, sweepRounded, type Section } from './shape';
 import { FOOTWEAR_RULES, type FootwearKind, type FootwearParams } from './params';
 import { MESH_DETAIL } from '../detail';
 import { fuseFootwear, type ImplicitSolid } from './fuse';
+import { buildShoeBody, type ShoeBody } from './shoeBody';
 
 /** Per-scan data that doesn't depend on the design parameters (cached by the caller). */
 export interface FootData {
@@ -52,6 +53,8 @@ export interface FootData {
   lowSilhouetteSdf: Float32Array;
   /** The same up to 35 mm above the floor: the widest part of the foot, without the ankle or leg. */
   midSilhouetteSdf: Float32Array;
+  /** Columns where the scan rises above 90 mm (ankle / leg): solid all the way up. */
+  legColumn: Uint8Array;
   /** True when the scan itself has the top of the foot. */
   hasDorsum: boolean;
   /** True when the top of the foot was estimated from the footprint (plantar / low scans). */
@@ -70,8 +73,39 @@ export function prepareFootData(surface: PlantarSurface, positions: Float32Array
   soleZ.sort((x, y) => x - y);
   const floor = soleZ.length ? soleZ[Math.floor(soleZ.length * 0.01)] : 0;
   const top = rasterizeHighestSurface(positions, indices, surface.frame, g, floor + 90);
+  // (columns of the ankle / leg reach above 90 mm: the capped raster finds the sole inside them)
+  const topAll = rasterizeHighestSurface(positions, indices, surface.frame, g, floor + 2000);
+  const legColumn = new Uint8Array(top.length);
+  for (let k = 0; k < top.length; k++) legColumn[k] = Number.isFinite(topAll[k]) && topAll[k] > floor + 90 ? 1 : 0;
   const lowest = rasterizeLowestSurface(positions, indices, surface.frame, g, 90);
   const bed = surface.z.map((z, k) => (Number.isNaN(lowest[k]) ? z : Math.min(z, lowest[k])));
+  // A hole in the scan's sole lets the plantar raster see the top of the foot through it: a spike.
+  // Limit how steeply the plantar surface can rise (1.2 mm per mm, steeper than any real sole
+  // under the foot) – a chamfer pass forwards and backwards.
+  {
+    const { nx, ny } = g, s1 = 1.2 * g.h, s2 = 1.2 * g.h * Math.SQRT2;
+    const relax = (k: number, n: number, d: number) => {
+      if (Number.isFinite(bed[n]) && bed[k] > bed[n] + d) bed[k] = bed[n] + d;
+    };
+    for (let pass = 0; pass < 2; pass++) {
+      for (let j = 0; j < ny; j++)
+        for (let i = 0; i < nx; i++) {
+          const k = j * nx + i;
+          if (i > 0) relax(k, k - 1, s1);
+          if (j > 0) relax(k, k - nx, s1);
+          if (i > 0 && j > 0) relax(k, k - nx - 1, s2);
+          if (i < nx - 1 && j > 0) relax(k, k - nx + 1, s2);
+        }
+      for (let j = ny - 1; j >= 0; j--)
+        for (let i = nx - 1; i >= 0; i--) {
+          const k = j * nx + i;
+          if (i < nx - 1) relax(k, k + 1, s1);
+          if (j < ny - 1) relax(k, k + nx, s1);
+          if (i < nx - 1 && j < ny - 1) relax(k, k + nx + 1, s2);
+          if (i > 0 && j < ny - 1) relax(k, k + nx - 1, s2);
+        }
+    }
+  }
   const mask = new Uint8Array(top.length);
   const heights: number[] = [];
   for (let k = 0; k < top.length; k++) {
@@ -85,6 +119,10 @@ export function prepareFootData(surface: PlantarSurface, positions: Float32Array
   // round the edge and at the toes); a plantar / foam-box scan stays within ~20 mm of it.
   const hasDorsum = heights.length > 0 && heights[Math.floor(heights.length * 0.75)] > 35 && heights[Math.floor(heights.length / 2)] > 15;
   const silhouetteSdf = signedDistance(mask, g);
+  // (scans open at the top of the leg: inside the leg the highest surface found is the sole itself)
+  for (let k = 0; k < top.length; k++) {
+    if (silhouetteSdf[k] < -6 && Number.isFinite(top[k]) && top[k] - bed[k] < 5) legColumn[k] = 1;
+  }
   const low = rasterizeHighestSurface(positions, indices, surface.frame, g, floor + 20);
   const lowMask = new Uint8Array(low.length);
   for (let k = 0; k < low.length; k++) lowMask[k] = Number.isNaN(low[k]) ? 0 : 1;
@@ -129,7 +167,7 @@ export function prepareFootData(surface: PlantarSurface, positions: Float32Array
   geom.setAttribute('position', new THREE.BufferAttribute(probePositions, 3));
   geom.setIndex(new THREE.BufferAttribute(probeIndices, 1));
   return {
-    surface, top, silhouetteSdf, lowSilhouetteSdf, midSilhouetteSdf, bed, hasDorsum, dorsumEstimated: !hasDorsum,
+    surface, top, legColumn, silhouetteSdf, lowSilhouetteSdf, midSilhouetteSdf, bed, hasDorsum, dorsumEstimated: !hasDorsum,
     probePositions, probeIndices, bvh: new MeshBVH(geom),
   };
 }
@@ -430,6 +468,30 @@ export function fuseFootwearSolids(foot: FootData, r: FootwearResult, clearance:
   return fused;
 }
 
+/**
+ * keepClear for a big implicit mesh: only vertices near the foot (over its silhouette, between
+ * just below the sole and just above the top) are checked against the scan.
+ */
+function keepClearNear(m: MeshData, foot: FootData, probe: ReturnType<typeof footProbe>, c: number): MeshData {
+  const { frame, grid: g } = foot.surface;
+  const P = m.positions;
+  for (let i = 0; i < P.length; i += 3) {
+    const [a, b] = worldToFrame(frame, P[i], P[i + 1]);
+    if (sampleGrid(g, foot.silhouetteSdf, a, b) > c + 3) continue;
+    const zb = sampleGrid(g, foot.bed, a, b), zt = sampleGrid(g, foot.top, a, b);
+    if (Number.isFinite(zb) && P[i + 2] < zb - c - 3) continue;
+    if (Number.isFinite(zt) && P[i + 2] > zt + c + 3) continue;
+    for (let it = 0; it < 3; it++) {
+      const q = probe(P[i], P[i + 1], P[i + 2]);
+      if (q.gap >= c - 0.02) break;
+      P[i] = q.x + q.dx * (c + 0.02);
+      P[i + 1] = q.y + q.dy * (c + 0.02);
+      P[i + 2] = q.z + q.dz * (c + 0.02);
+    }
+  }
+  return m;
+}
+
 export function generateFootwear(foot: FootData, p: FootwearParams): FootwearResult {
   const { surface } = foot;
   const { frame, grid: g } = surface;
@@ -647,8 +709,10 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
 
   // Optional smooth footbed skin (solid) on the contoured footbed, over the lattice.
   const SKIN = 1.2;
+  // (shoes: the solid finish has its own footbed; the lattice finish keeps the open lattice top)
+  const skinOn = p.footbedSkin && p.kind !== 'shoe';
   let skinSolid = -1;
-  if (p.footbedSkin) {
+  if (skinOn) {
     const inner = outlineSdf.map((d) => d + wall - 0.3);
     const under = T.map((z) => z - SKIN);
     const skin = buildSolid(g, inner, T, under, toWorld);
@@ -673,7 +737,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   }
 
   // --- midsole lattice ----------------------------------------------------------------------
-  const topSurface = p.footbedSkin ? T.map((z) => z - SKIN + 0.3) : T;
+  const topSurface = skinOn ? T.map((z) => z - SKIN + 0.3) : T;
   const stacks: number[] = [];
   for (let k = 0; k < nodeCount; k++) if (outlineSdf[k] < -wall) stacks.push(topSurface[k] - plateTop[k]);
   stacks.sort((x, y) => x - y);
@@ -693,14 +757,14 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   }));
   {
     const Nn = midsole.nodes;
-    const target = p.footbedSkin ? c + SKIN - 0.3 : c;
+    const target = skinOn ? c + SKIN - 0.3 : c;
     for (let v = 0; v < Nn.length / 3; v++) {
       const [a, b] = worldToFrame(frame, Nn[3 * v], Nn[3 * v + 1]);
       const floor = sampleGrid(g, plateTop, a, b);
       for (let it = 0; it < 6; it++) {
         const gap = scanProbe(Nn[3 * v], Nn[3 * v + 1], Nn[3 * v + 2]).gap - r;
         const tooClose = gap < target - 0.02 && Nn[3 * v + 2] > floor;
-        const tooFar = !p.footbedSkin && underFoot.has(v) && gap > c + 0.05;
+        const tooFar = !skinOn && underFoot.has(v) && gap > c + 0.05;
         if (!tooClose && !tooFar) break;
         Nn[3 * v + 2] = Math.max(floor, Nn[3 * v + 2] + (gap - target) * (tooClose ? 1.05 : 0.9));
       }
@@ -710,7 +774,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
 
   // Lattice side wall option: a triangulated cage just inside the outline (anchored in the plate).
   const cageStart = lattice.nodes.length / 3;
-  if (p.sideWall === 'lattice') appendLattice(lattice, sideCage(g, outlineSdf, plateTop, rimTop, p.cellSize, r, toWorld));
+  if (p.sideWall === 'lattice' && p.kind !== 'shoe') appendLattice(lattice, sideCage(g, outlineSdf, plateTop, rimTop, p.cellSize, r, toWorld));
 
   if (foot.dorsumEstimated) {
     warnings.push(
@@ -867,60 +931,79 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     }
   }
 
+  let shoeBody: ShoeBody | null = null;
   if (p.kind === 'shoe') {
-    // Shoe: a smooth last-like upper standing on the rim, fitted around the foot, with a
-    // regular lattice and a clean collar around the ankle opening.
+    // Shoe: one smooth implicit solid around the foot (see shoeBody.ts) – upper, midsole and sole
+    // blended into one piece, cut by a smooth collar line; lattice only as the finish.
     const bThroat = silBack + p.shoe.throat * footLen;
-    // top line: heel tab at the back, a dip under the ankle bones, then a rounded rise to the throat
     const malls = [frame.medialMalleolus, frame.lateralMalleolus].filter((m): m is [number, number, number] => !!m);
     const bAnkle = malls.length ? malls.reduce((acc, m) => acc + m[1], 0) / malls.length : silBack + 0.2 * footLen;
-    const collarR = p.shoe.collarDiameter / 2;
     /**
-     * Highest the collar line may be at b so the top of the collar rim stays `malleolusGap` below
-     * each malleolus: flat under the ankle bone (±18 mm along the foot), then rising smoothly.
+     * Highest the collar line may be at b so the top of the collar stays `malleolusGap` below each
+     * malleolus: flat under the ankle bone (±18 mm along the foot), then rising smoothly.
      */
-    const ankleCap = (b: number) => {
-      let z = Infinity;
-      for (const [, mb, mz] of malls) {
-        const d = Math.max(0, Math.abs(b - mb) - 18) / 30;
-        z = Math.min(z, mz - p.shoe.malleolusGap - 0.2 - collarR + 30 * d * d); // (0.2: the collar nodes sit between rows)
+    const capFor = (m: [number, number, number] | null, b: number) => {
+      if (!m) return Infinity;
+      const d = Math.max(0, Math.abs(b - m[1]) - 18) / 40;
+      return m[2] - p.shoe.malleolusGap - 0.3 + 30 * d * d;
+    };
+    /**
+     * Each side of the collar follows its own malleolus (the medial one is usually higher); across
+     * the back of the heel and the front of the opening the two sides blend.
+     */
+    const ankleCap = (a: number, b: number) => {
+      const cm = capFor(frame.medialMalleolus, b), cl = capFor(frame.lateralMalleolus, b);
+      if (!Number.isFinite(cm) || !Number.isFinite(cl)) return Math.min(cm, cl);
+      const ext = rowExtent(poly, b), mid = ext ? (ext[0] + ext[1]) / 2 : 0, hw = ext ? (ext[1] - ext[0]) / 2 : 40;
+      const wMed = smoothstep(-0.5 * hw, 0.5 * hw, (a - mid) * frame.medialSign);
+      // (never above the lower cap by more than the blend allows at the centre)
+      return cl + (cm - cl) * wMed;
+    };
+    // highest point of the foot across each row (the throat closes above it)
+    const rowTop = new Float32Array(g.ny).fill(-Infinity);
+    for (let jj = 0; jj < g.ny; jj++)
+      for (let ii = 0; ii < g.nx; ii++) {
+        const k = jj * g.nx + ii;
+        // (the dorsum, not the ankle / leg)
+        if (foot.silhouetteSdf[k] < 0 && !foot.legColumn[k] && Number.isFinite(foot.top[k])) rowTop[jj] = Math.max(rowTop[jj], foot.top[k]);
       }
-      return z;
-    };
-    let collarZ = (b: number) => {
-      // gentle rise over the last 60 mm to the throat, so the opening's front is a round U
-      const rise = smoothstep(bThroat - 60, bThroat + 5, b);
-      const line = rimZ(b) + p.shoe.collarHeight * (1 - 0.15 * Math.exp(-(((b - bAnkle) / 25) ** 2))) + 3 * smoothstep(silBack + 45, silBack, b) + 70 * rise * rise;
-      return Math.min(line, ankleCap(b));
-    };
-    const opening = (b: number, z: number) => b < bThroat && z > collarZ(b);
-    const step = p.cellSize * 0.866;
-    const rows: { b: number; ac: number; hw: number; bulge: number; zBase: number; req: number }[] = [];
-    for (let b = outBack + 1.5; b <= outFront - 1.5; b += step) {
-      const e = extentAt(b, wall / 2);
-      if (!e) continue;
-      rows.push({ b, ...e, bulge: Math.max(0, footHalfAt(b, e.ac) + c + r + 0.8 - e.hw), zBase: rimZ(b) - 1.5, req: 0 });
+    // (smooth along the foot, so the throat's top edge is a clean line)
+    {
+      const filled = Array.from(rowTop, (v) => (Number.isFinite(v) ? v : -Infinity));
+      const sm = smoothEnvelope(filled.map((v) => (Number.isFinite(v) ? v : 0)), Math.round(12 / g.h));
+      filled.forEach((v, jj) => (rowTop[jj] = Number.isFinite(v) ? sm[jj] : -Infinity));
     }
-    const w = Math.max(1, Math.round(15 / step));
-    const bulge = smoothEnvelope(rows.map((row) => row.bulge), w);
-    for (const [i, row] of rows.entries()) {
-      // the ankle above the collar is outside the upper
-      row.req = fitArchHeight({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + bulge[i], zBase: row.zBase, p: 2.7 }, reqPts(row.b, r + 0.4, row.b < bThroat ? collarZ(row.b) : Infinity), 8);
-      if (row.b < bThroat - 30) row.req = Math.max(row.req, p.shoe.collarHeight + 8); // heel counter up to the collar
+    const rowTopAt = (b: number) => rowTop[Math.min(g.ny - 1, Math.max(0, Math.round((b - g.b0) / g.h)))];
+    // smooth collar line: heel tab at the back, a dip under the ankle bones, then a round U rising
+    // to the throat, where the vamp closes
+    // in front of the throat the shoe is closed over the dorsum; nothing stands above it (the
+    // leg's front may reach forward of the throat)
+    const closedAt = (b: number) => (Number.isFinite(rowTopAt(b)) ? rowTopAt(b) + c + p.shoe.wall + 3 : Infinity);
+    const collarZ = (a: number, b: number) => {
+      if (b >= bThroat) return closedAt(b);
+      const line = rimZ(b) + p.shoe.collarHeight * (1 - 0.15 * Math.exp(-(((b - bAnkle) / 25) ** 2))) + 3 * smoothstep(silBack + 45, silBack, b);
+      const s = smoothstep(bThroat - 55, bThroat, b);
+      const closed = Math.max(line, closedAt(b));
+      return Math.min(line + (closed - line) * s * s, ankleCap(a, b));
+    };
+    shoeBody = buildShoeBody({
+      g, silhouetteSdf: foot.silhouetteSdf, bed: foot.bed, top: foot.top, legColumn: foot.legColumn, T, bottom: Btread, plateTop, outlineSdf,
+      collarZ, sideTop: rimZ, clearance: c, wall: p.shoe.wall, toeAllowance: p.toeAllowance, bBall: bMT,
+      voxel: Math.max(det.fuseVoxel, p.detail === 'standard' ? 1 : 0.7), finish: p.shoe.finish, sideWall: p.sideWall, collarBand: p.shoe.collarDiameter,
+      soleWall: wall, cell: p.cellSize, radius: r, pattern: p.upperPattern, toWorld,
+    });
+    // the body replaces the separate sole plate and rim
+    solids.length = 0;
+    heightSolids.length = 0;
+    solids.push(keepClearNear(shoeBody.solid, foot, scanProbe, c));
+    if (p.shoe.finish === 'solid') {
+      lattice.nodes.length = 0;
+      lattice.edges.length = 0;
+      lattice.radii.length = 0;
+    } else {
+      upperStart = lattice.nodes.length / 3;
+      appendLattice(lattice, shoeBody.lattice);
     }
-    const hs = smoothAbove(rows.map((row) => row.req), Math.max(1, 8 / step));
-    const sections = rows.map((row, i) => ({ b: row.b, ac: row.ac, hw: row.hw, hwMax: row.hw + bulge[i], zBase: row.zBase, hs: hs[i], p: 2.7 }));
-    // Near the throat, cut at least 18 mm below the top of the upper, so the front of the opening
-    // is a wide round U (not a narrow slit that ends in a peak).
-    const topZ = (b: number) => { const sc = sectionBetween(sections, b); return sc.zBase + sc.hs; };
-    const collarZ0 = collarZ;
-    collarZ = (b: number) => Math.min(collarZ0(b), topZ(b) - 18 * smoothstep(bThroat - 70, bThroat - 20, b));
-    // double-skin lattice (inner skin at the section, outer skin one shell further out)
-    const up = sectionLattice({ sections, cell: p.cellSize, radius: r, collarR: p.shoe.collarDiameter / 2, opening, collarZ, toWorld, shell: Math.max(2 * r + 1.5, 0.6 * p.cellSize), pattern: p.upperPattern });
-    upperStart = lattice.nodes.length / 3;
-    const edgeBase = lattice.radii.length;
-    appendLattice(lattice, up);
-    for (const e of up.collarEdges) collarEdges.add(edgeBase + e);
   }
 
   // Safety pass for the side cage and the upper: any node still closer than the clearance is
@@ -953,11 +1036,21 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   const nodeGap = (v: number) => scanProbe(lattice.nodes[3 * v], lattice.nodes[3 * v + 1], lattice.nodes[3 * v + 2]).gap - nodeR[v];
   // Footbed (the contoured part): must be within the clearance band.
   let fMin = Infinity, fMax = -Infinity;
-  if (p.footbedSkin) {
+  if (skinOn) {
     const m = solids[skinSolid], P = m.positions;
     for (let i = 0; i < P.length / 2; i += 6) {
       const [a, b] = worldToFrame(frame, P[i], P[i + 1]);
       if (at(foot.lowSilhouetteSdf, a, b) >= -4) continue;
+      const gap = scanProbe(P[i], P[i + 1], P[i + 2]).gap;
+      fMin = Math.min(fMin, gap);
+      fMax = Math.max(fMax, gap);
+    }
+  } else if (p.kind === 'shoe' && p.shoe.finish === 'solid') {
+    // solid shoe: the footbed is the cavity floor of the body (vertices on the top of the sole)
+    const P = solids[0].positions;
+    for (let i = 0; i < P.length; i += 3) {
+      const [a, b] = worldToFrame(frame, P[i], P[i + 1]);
+      if (at(foot.lowSilhouetteSdf, a, b) >= -8 || Math.abs(P[i + 2] - at(T, a, b)) > 0.3) continue;
       const gap = scanProbe(P[i], P[i + 1], P[i + 2]).gap;
       fMin = Math.min(fMin, gap);
       fMax = Math.max(fMax, gap);
@@ -1013,19 +1106,18 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   // Shoe collar vs the malleoli: the top of the collar rim on each malleolus' side, under it.
   let ankle: { medial: number | null; lateral: number | null } | null = null;
   if (p.kind === 'shoe' && (frame.medialMalleolus || frame.lateralMalleolus)) {
-    const collarR = p.shoe.collarDiameter / 2;
     const gapUnder = (m: [number, number, number] | null) => {
       if (!m) return null;
       const [ma, mb, mz] = m;
+      // top of the shoe body on the malleolus' side, under it
       let top = -Infinity;
-      for (const e of collarEdges) {
-        for (const v of [lattice.edges[2 * e], lattice.edges[2 * e + 1]]) {
-          const [a, b] = worldToFrame(frame, lattice.nodes[3 * v], lattice.nodes[3 * v + 1]);
-          if (Math.abs(b - mb) > 12) continue;
-          const ext = rowExtent(poly, b), mid = ext ? (ext[0] + ext[1]) / 2 : 0;
-          if (Math.sign(a - mid) !== Math.sign(ma - mid)) continue; // the other side of the shoe
-          top = Math.max(top, lattice.nodes[3 * v + 2] + collarR);
-        }
+      const P = solids[0].positions;
+      for (let i = 0; i < P.length; i += 3) {
+        const [a, b] = worldToFrame(frame, P[i], P[i + 1]);
+        if (Math.abs(b - mb) > 10) continue;
+        const ext = rowExtent(poly, b), mid = ext ? (ext[0] + ext[1]) / 2 : 0;
+        if (Math.sign(a - mid) !== Math.sign(ma - mid)) continue; // the other side of the shoe
+        top = Math.max(top, P[i + 2]);
       }
       return Number.isFinite(top) ? mz - top : null;
     };
@@ -1042,8 +1134,8 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   const rules: RuleCheck[] = [
     {
       rule: `Lattice strut ${R.strutDiameter.min}–${R.strutDiameter.max} mm`,
-      value: sMin === sMax ? `${sMin.toFixed(2)} mm` : `${sMin.toFixed(2)}–${sMax.toFixed(2)} mm`,
-      ok: sMin >= R.strutDiameter.min - 1e-6 && sMax <= R.strutDiameter.max + 1e-6,
+      value: !Number.isFinite(sMin) ? 'no lattice (solid)' : sMin === sMax ? `${sMin.toFixed(2)} mm` : `${sMin.toFixed(2)}–${sMax.toFixed(2)} mm`,
+      ok: !Number.isFinite(sMin) || (sMin >= R.strutDiameter.min - 1e-6 && sMax <= R.strutDiameter.max + 1e-6),
     },
     {
       rule: `Footbed clearance to the foot ${R.clearance.min}–${R.clearance.max} mm (±${eps})`,
