@@ -9,6 +9,8 @@ import { defaultFootwearParams, REFERENCE_DESIGNS, type DesignId, type FootwearK
 import { meshWorker, withMesh } from '../workers/meshClient';
 import { setView, useStore, commit, beginGesture, updateLive, endGesture } from './store';
 import { footwearLandmarks } from './insoleActions';
+import { selectLandmark } from './landmarkActions';
+import { ANKLE_LANDMARKS, LANDMARK_BY_ID, type LandmarkId } from '../core/landmarks/definitions';
 import { withBusy } from './actions';
 
 const get = useStore.getState;
@@ -17,6 +19,24 @@ const set = useStore.setState;
 /** Shows the insole or the footwear designer (panel and viewport). */
 export function setDesignCategory(category: 'insole' | 'footwear'): void {
   set({ designCategory: category });
+  if (category === 'footwear') requestAnkleLandmarks();
+}
+
+/** The malleolus landmarks not placed yet. */
+export function missingAnkleLandmarks(): LandmarkId[] {
+  const doc = get().doc;
+  return doc ? ANKLE_LANDMARKS.filter((id) => !doc.landmarks[id]) : [];
+}
+
+/**
+ * Asks for the malleoli: starts placing the first missing one (click on the scan), with a
+ * message saying which. Placing it moves on to the other one.
+ */
+export function requestAnkleLandmarks(): void {
+  const missing = missingAnkleLandmarks();
+  if (!missing.length || !get().doc?.scan) return;
+  selectLandmark(missing[0]);
+  set({ notice: `Footwear: click the most prominent point of the ${LANDMARK_BY_ID[missing[0]].label.toLowerCase()} on the scan (the shoe collar is kept below it).` });
 }
 
 /** "Create the footwear" toggle. Suggests the shoe size from the scan footprint. */

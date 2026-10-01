@@ -1,7 +1,7 @@
 import { Html } from '@react-three/drei';
 import { useThree, type ThreeEvent } from '@react-three/fiber';
 import { useEffect, useRef, useState } from 'react';
-import { ANKLE_LANDMARKS, LANDMARK_BY_ID, landmarksForScanType, type LandmarkId } from '../core/landmarks/definitions';
+import { LANDMARK_BY_ID, landmarksForScanType, type LandmarkId } from '../core/landmarks/definitions';
 import { dragLandmark, selectLandmark } from '../state/landmarkActions';
 import { beginGesture, useStore } from '../state/store';
 import { endLandmarkGesture } from '../state/basePlaneActions';
@@ -17,7 +17,6 @@ type ControlsLike = { enabled: boolean } | null;
 export function LandmarkMarkers({ radius }: { radius: number }) {
   const landmarks = useStore((s) => s.doc?.landmarks);
   const scan = useStore((s) => s.doc?.scan);
-  const footwear = useStore((s) => s.designCategory === 'footwear');
   const active = useStore((s) => s.activeLandmark);
   // HTML labels ignore parent visibility, so hide them explicitly with the scan.
   const showLabels = useStore((s) => s.view.showLabels && s.view.scanDisplay !== 'hidden');
@@ -53,7 +52,7 @@ export function LandmarkMarkers({ radius }: { radius: number }) {
   }, [dragging, camera, gl, controls]);
 
   if (!landmarks || !scan) return null;
-  const defs = landmarksForScanType(scan.type, footwear || ANKLE_LANDMARKS.some((id) => landmarks[id]));
+  const defs = landmarksForScanType(scan.type, true);
 
   return (
     <group>

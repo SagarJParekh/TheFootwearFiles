@@ -190,3 +190,6 @@ fieldset.plain:disabled { opacity: 0.5; }
 .rule-box .rule.ok span { color: #1f7a3d; }
 .rule-box .rule.bad span { color: #c0392b; }
 .hint.warn { color: #9a5b00; }
+.rule-box.ask { border-color: #e0a800; background: #fff8e1; }
+.rule-box button.primary { margin-top: 6px; width: 100%; }
+.ankle-banner { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5; background: #fff8e1; border: 1px solid #e0a800; border-radius: 8px; padding: 8px 12px; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.12); display: flex; gap: 10px; align-items: center; max-width: 90%; }

@@ -39,8 +39,28 @@ try {
   }
   await page.click('[data-testid=tab-insole]');
 
-  // 3rd category: footwear → chappal
+  // 3rd category: footwear → it asks for the malleoli straight away (click on the scan)
   await page.check('[data-testid=type-footwear]');
+  const placing = () => page.evaluate(() => { const s = window.__app.useStore.getState(); return s.tool === 'landmark' ? s.activeLandmark : null; });
+  check((await placing()) === 'medialMalleolus' && (await page.isVisible('[data-testid=fw-ankle-placing]')) && (await page.isVisible('[data-testid=ankle-banner]')) && /medial malleolus/.test(await page.evaluate(() => window.__app.useStore.getState().notice ?? '')),
+    'choosing Footwear asks for the medial malleolus (placing mode, message)');
+  await page.click('.toolbar button:text-is("Medial")');
+  await page.waitForTimeout(500);
+  const cv = await (await page.$('canvas')).boundingBox();
+  await page.mouse.click(cv.x + cv.width / 2, cv.y + cv.height / 2);
+  await page.waitForTimeout(300);
+  check((await placing()) === 'lateralMalleolus' && /lateral malleolus/.test(await page.evaluate(() => window.__app.useStore.getState().notice ?? '')), 'after MM it asks for the lateral malleolus');
+  await page.click('.toolbar button:text-is("Lateral")');
+  await page.waitForTimeout(500);
+  await page.mouse.click(cv.x + cv.width / 2, cv.y + cv.height / 2);
+  await page.waitForTimeout(300);
+  const ank = await page.evaluate(() => Object.keys(window.__app.useStore.getState().doc.landmarks));
+  check(ank.includes('medialMalleolus') && ank.includes('lateralMalleolus') && (await placing()) === null && (await page.locator('[data-testid=fw-place-ankle]').count()) === 0,
+    'both malleoli placed by clicking the scan; placing stops');
+  // (the synthetic foot has no ankle: remove them again for the rest of the test)
+  await page.evaluate(() => { window.__app.landmarks.deleteLandmark('medialMalleolus'); window.__app.landmarks.deleteLandmark('lateralMalleolus'); });
+  check(await page.isVisible('[data-testid=fw-place-ankle]'), 'missing malleoli: "Place MM and LM now" button');
+  await page.keyboard.press('Escape');
   await page.check('[data-testid=fw-kind-chappal]');
   await page.click('[data-testid=create-footwear] + span');
   await page.waitForFunction(() => window.__app.useStore.getState().footwear, null, { timeout: 90000 });

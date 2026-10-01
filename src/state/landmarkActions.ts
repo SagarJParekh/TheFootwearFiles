@@ -1,5 +1,5 @@
 import { landmarksToCsv, landmarksToJson, parseLandmarksJson } from '../core/io/landmarksIO';
-import { LANDMARK_BY_ID, landmarksForScanType, type LandmarkId } from '../core/landmarks/definitions';
+import { ANKLE_LANDMARKS, LANDMARK_BY_ID, landmarksForScanType, type LandmarkId } from '../core/landmarks/definitions';
 import type { Vec3 } from '../core/types';
 import { meshWorker, withMesh } from '../workers/meshClient';
 import { commit, setTool, updateLive, useStore } from './store';
@@ -19,7 +19,9 @@ export function selectLandmark(id: LandmarkId | null): void {
 function nextMissing(after: LandmarkId): LandmarkId | null {
   const { doc } = get();
   if (!doc?.scan) return null;
-  const defs = landmarksForScanType(doc.scan.type, get().designCategory === 'footwear');
+  let defs = landmarksForScanType(doc.scan.type, get().designCategory === 'footwear');
+  // placing the malleoli (asked for by the footwear designer): go on to the other one, then stop
+  if (ANKLE_LANDMARKS.includes(after)) defs = defs.filter((d) => ANKLE_LANDMARKS.includes(d.id));
   const start = defs.findIndex((d) => d.id === after);
   for (let i = 1; i <= defs.length; i++) {
     const d = defs[(start + i) % defs.length];
@@ -38,6 +40,11 @@ export function placeLandmark(id: LandmarkId, local: Vec3): void {
   // Advance to the next missing landmark so a full set can be placed click-by-click.
   const next = nextMissing(id);
   selectLandmark(next);
+  if (next && ANKLE_LANDMARKS.includes(next)) {
+    set({ notice: `Now click the most prominent point of the ${LANDMARK_BY_ID[next].label.toLowerCase()}.` });
+  } else if (ANKLE_LANDMARKS.includes(id) && !next) {
+    set({ notice: 'Both malleoli placed – the shoe collar is kept below them.' });
+  }
 }
 
 /** Live update while dragging (history is recorded by the surrounding gesture). */

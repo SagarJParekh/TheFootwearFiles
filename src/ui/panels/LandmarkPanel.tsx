@@ -31,7 +31,7 @@ export function LandmarkPanel() {
     );
   }
   // footwear adds the malleoli (also shown once placed, whatever is being designed)
-  const withAnkle = footwear || ANKLE_LANDMARKS.some((id) => doc.landmarks[id]);
+  const withAnkle = true; // the malleoli are always listed (the footwear designer needs them)
   const defs = landmarksForScanType(doc.scan.type, withAnkle);
   const ankleMissing = withAnkle && doc.scan.type === 'plantar' && ANKLE_LANDMARKS.some((id) => !doc.landmarks[id]);
   const placed = defs.filter((d) => doc.landmarks[d.id]).length;

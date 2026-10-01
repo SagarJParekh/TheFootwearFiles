@@ -4,11 +4,12 @@ import {
   CHAPPAL_STYLE_LABEL, FOOTWEAR_RANGES as R, FOOTWEAR_RULES, REFERENCE_DESIGNS, SIDE_WALL_LABEL, STRAP_PATTERN_LABEL, TREAD_LABEL, UPPER_PATTERN_LABEL,
   type ChappalStyle, type DesignId, type FootwearKind, type FootwearParams, type SideWall, type StrapPattern, type TreadPattern, type UpperPattern,
 } from '../../core/footwear/params';
-import { applyFootwearDesign, exportFootwearStl, footwearGesture, setFootwearEnabled, setFootwearKind, updateFootwear } from '../../state/footwearActions';
+import { applyFootwearDesign, requestAnkleLandmarks, exportFootwearStl, footwearGesture, setFootwearEnabled, setFootwearKind, updateFootwear } from '../../state/footwearActions';
 import { useStore } from '../../state/store';
 import { Panel, downloadBlob } from '../common';
 import { ScanDisplayToggle } from '../ScanDisplayToggle';
 import { MESH_DETAIL_LABEL, type MeshDetail } from '../../core/detail';
+import { ANKLE_LANDMARKS, LANDMARK_BY_ID } from '../../core/landmarks/definitions';
 import { Field, SelectField, SliderField, Switch, type ParamApi } from './designControls';
 
 const api: ParamApi<FootwearParams> = { ...footwearGesture, commit: updateFootwear };
@@ -21,6 +22,38 @@ const KIND_INFO: Record<FootwearKind, { title: string; sub: string }> = {
   chappal: { title: 'Chappal', sub: 'Slides & thongs · lattice footbed' },
   shoe: { title: 'Shoe', sub: 'Double-skin lattice upper' },
 };
+
+/**
+ * The malleolus landmarks the footwear asks for (the shoe collar is kept below them): their
+ * status, and a button that starts placing the missing ones on the scan.
+ */
+function AnkleLandmarks() {
+  const landmarks = useStore((s) => s.doc?.landmarks);
+  const active = useStore((s) => (s.tool === 'landmark' ? s.activeLandmark : null));
+  if (!landmarks) return null;
+  const missing = ANKLE_LANDMARKS.filter((id) => !landmarks[id]);
+  const placing = active && ANKLE_LANDMARKS.includes(active) ? active : null;
+  return (
+    <div className={`rule-box ${missing.length ? 'ask' : ''}`} data-testid="fw-ankle-landmarks">
+      <div className="field-group-label">Ankle landmarks (for the shoe collar)</div>
+      {ANKLE_LANDMARKS.map((id) => (
+        <div key={id} className={`rule ${landmarks[id] ? 'ok' : 'bad'}`} data-testid={`fw-ankle-${id}`}>
+          <span>{landmarks[id] ? '✔' : '○'} {LANDMARK_BY_ID[id].label} ({LANDMARK_BY_ID[id].shortLabel})</span>
+          <b>{landmarks[id] ? 'placed' : placing === id ? 'click it on the scan…' : 'missing'}</b>
+        </div>
+      ))}
+      {placing ? (
+        <div className="hint warn" data-testid="fw-ankle-placing">
+          Click the most prominent point of the <b>{LANDMARK_BY_ID[placing].label.toLowerCase()}</b> on the scan.
+        </div>
+      ) : missing.length ? (
+        <button className="primary" onClick={requestAnkleLandmarks} data-testid="fw-place-ankle">
+          Place {missing.map((id) => LANDMARK_BY_ID[id].shortLabel).join(' and ')} now
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 /** Sections 2b–4 of the designer when the "Footwear" category is chosen. */
 export function FootwearPanel({ ready }: { ready: boolean }) {
@@ -37,6 +70,7 @@ export function FootwearPanel({ ready }: { ready: boolean }) {
   return (
     <>
       <Panel title="Footwear">
+        <AnkleLandmarks />
         <div className="type-choice" role="radiogroup">
           {(['chappal', 'shoe'] as FootwearKind[]).map((k) => (
             <label key={k} className={`type-card ${kind === k ? 'active' : ''}`}>

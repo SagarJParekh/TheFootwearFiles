@@ -1,3 +1,5 @@
+import { ANKLE_LANDMARKS, LANDMARK_BY_ID } from './core/landmarks/definitions';
+import { selectLandmark } from './state/landmarkActions';
 import { useEffect, useState } from 'react';
 import { Viewport } from './viewer/Viewport';
 import { Toolbar } from './ui/Toolbar';
@@ -15,6 +17,20 @@ import { StatusBar } from './ui/StatusBar';
 import { useKeyboardShortcuts } from './ui/useKeyboardShortcuts';
 import { openAnyFile } from './state/fileOpen';
 import { useStore } from './state/store';
+
+/** Banner over the 3D view while the footwear designer waits for a malleolus click. */
+function AnkleBanner() {
+  const id = useStore((s) => (s.tool === 'landmark' && s.activeLandmark && ANKLE_LANDMARKS.includes(s.activeLandmark) ? s.activeLandmark : null));
+  if (!id) return null;
+  return (
+    <div className="ankle-banner" data-testid="ankle-banner">
+      <span>
+        Footwear needs the ankle bones: click the most prominent point of the <b>{LANDMARK_BY_ID[id].label.toLowerCase()} ({LANDMARK_BY_ID[id].shortLabel})</b>
+      </span>
+      <button onClick={() => selectLandmark(null)}>Later</button>
+    </div>
+  );
+}
 
 export default function App() {
   const hasDoc = useStore((s) => !!s.doc);
@@ -76,6 +92,7 @@ export default function App() {
         <div className={`viewport tool-${tool}`}>
           <Viewport />
           <ViewportScanToggle />
+          <AnkleBanner />
           {dragOver && <div className="drop-overlay">Drop a 3D model, project or landmarks JSON</div>}
         </div>
         {hasDoc && (
