@@ -200,6 +200,8 @@ export interface FootwearResult {
   minGap: number;
   /** Gap range between the foot and the straps / upper (standard shapes, so it varies) (mm). */
   upperGap: { min: number; max: number } | null;
+  /** Shoe: vertical gap from the top of the collar rim to each malleolus (mm; null = not placed / not over the opening). */
+  ankle: { medial: number | null; lateral: number | null } | null;
   rules: RuleCheck[];
   warnings: string[];
   /** Toe post (thong / split-toe) in frame coordinates (a, b), else null. */
@@ -870,11 +872,26 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     // regular lattice and a clean collar around the ankle opening.
     const bThroat = silBack + p.shoe.throat * footLen;
     // top line: heel tab at the back, a dip under the ankle bones, then a rounded rise to the throat
-    const bAnkle = silBack + 0.2 * footLen;
+    const malls = [frame.medialMalleolus, frame.lateralMalleolus].filter((m): m is [number, number, number] => !!m);
+    const bAnkle = malls.length ? malls.reduce((acc, m) => acc + m[1], 0) / malls.length : silBack + 0.2 * footLen;
+    const collarR = p.shoe.collarDiameter / 2;
+    /**
+     * Highest the collar line may be at b so the top of the collar rim stays `malleolusGap` below
+     * each malleolus: flat under the ankle bone (±18 mm along the foot), then rising smoothly.
+     */
+    const ankleCap = (b: number) => {
+      let z = Infinity;
+      for (const [, mb, mz] of malls) {
+        const d = Math.max(0, Math.abs(b - mb) - 18) / 30;
+        z = Math.min(z, mz - p.shoe.malleolusGap - 0.2 - collarR + 30 * d * d); // (0.2: the collar nodes sit between rows)
+      }
+      return z;
+    };
     let collarZ = (b: number) => {
       // gentle rise over the last 60 mm to the throat, so the opening's front is a round U
       const rise = smoothstep(bThroat - 60, bThroat + 5, b);
-      return rimZ(b) + p.shoe.collarHeight * (1 - 0.15 * Math.exp(-(((b - bAnkle) / 25) ** 2))) + 3 * smoothstep(silBack + 45, silBack, b) + 70 * rise * rise;
+      const line = rimZ(b) + p.shoe.collarHeight * (1 - 0.15 * Math.exp(-(((b - bAnkle) / 25) ** 2))) + 3 * smoothstep(silBack + 45, silBack, b) + 70 * rise * rise;
+      return Math.min(line, ankleCap(b));
     };
     const opening = (b: number, z: number) => b < bThroat && z > collarZ(b);
     const step = p.cellSize * 0.866;
@@ -993,6 +1010,32 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       warnings.push(`The toe post sits in the web between the 1st and 2nd toes, but the gap there is narrower than the post: it presses about ${(-worst).toFixed(1)} mm into the toes.`);
     }
   }
+  // Shoe collar vs the malleoli: the top of the collar rim on each malleolus' side, under it.
+  let ankle: { medial: number | null; lateral: number | null } | null = null;
+  if (p.kind === 'shoe' && (frame.medialMalleolus || frame.lateralMalleolus)) {
+    const collarR = p.shoe.collarDiameter / 2;
+    const gapUnder = (m: [number, number, number] | null) => {
+      if (!m) return null;
+      const [ma, mb, mz] = m;
+      let top = -Infinity;
+      for (const e of collarEdges) {
+        for (const v of [lattice.edges[2 * e], lattice.edges[2 * e + 1]]) {
+          const [a, b] = worldToFrame(frame, lattice.nodes[3 * v], lattice.nodes[3 * v + 1]);
+          if (Math.abs(b - mb) > 12) continue;
+          const ext = rowExtent(poly, b), mid = ext ? (ext[0] + ext[1]) / 2 : 0;
+          if (Math.sign(a - mid) !== Math.sign(ma - mid)) continue; // the other side of the shoe
+          top = Math.max(top, lattice.nodes[3 * v + 2] + collarR);
+        }
+      }
+      return Number.isFinite(top) ? mz - top : null;
+    };
+    ankle = { medial: gapUnder(frame.medialMalleolus), lateral: gapUnder(frame.lateralMalleolus) };
+    for (const [name, gap] of [['medial', ankle.medial], ['lateral', ankle.lateral]] as const) {
+      if (gap === null && (name === 'medial' ? frame.medialMalleolus : frame.lateralMalleolus)) {
+        warnings.push(`The ${name} malleolus is in front of the shoe opening (throat), so the collar can't be kept below it – move the throat forward or check the landmark.`);
+      }
+    }
+  }
   const R = FOOTWEAR_RULES;
   const eps = FOOTWEAR_CLEARANCE_TOLERANCE;
   const range = (lo: number, hi: number) => (lo.toFixed(1) === hi.toFixed(1) ? `${lo.toFixed(1)} mm` : `${lo.toFixed(1)}–${hi.toFixed(1)} mm`);
@@ -1013,6 +1056,11 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       ok: gMin >= R.clearance.min - eps,
     },
   ];
+  if (ankle && (ankle.medial !== null || ankle.lateral !== null)) {
+    const parts = [ankle.medial !== null && `MM ${ankle.medial.toFixed(1)} mm`, ankle.lateral !== null && `LM ${ankle.lateral.toFixed(1)} mm`].filter(Boolean);
+    const lo = Math.min(ankle.medial ?? Infinity, ankle.lateral ?? Infinity);
+    rules.push({ rule: `Collar rim at least ${p.shoe.malleolusGap} mm below the malleoli`, value: parts.join(', '), ok: lo >= p.shoe.malleolusGap - eps });
+  }
 
   const latticeMesh = latticeToMesh(lattice, det.strutSides);
   const mesh = concatMeshes([...solids, latticeMesh]);
@@ -1028,6 +1076,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     clearance: { min: fMin, max: fMax },
     minGap: gMin,
     upperGap: Number.isFinite(uMin) ? { min: uMin, max: uMax } : null,
+    ankle,
     rules,
     warnings,
     toePost: thong ? post : null,

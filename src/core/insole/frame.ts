@@ -18,6 +18,9 @@ export interface InsoleFrame {
   arch: [number, number] | null;
   archStart: [number, number] | null;
   archEnd: [number, number] | null;
+  /** Malleoli in frame coordinates (a, b) and world height z. */
+  medialMalleolus: [number, number, number] | null;
+  lateralMalleolus: [number, number, number] | null;
 }
 
 export interface FrameLandmarks {
@@ -27,6 +30,9 @@ export interface FrameLandmarks {
   archPeak?: Vec3;
   archStart?: Vec3;
   archEnd?: Vec3;
+  /** Ankle landmarks (footwear: the shoe collar is kept below them). */
+  medialMalleolus?: Vec3;
+  lateralMalleolus?: Vec3;
 }
 
 export function buildInsoleFrame(lm: FrameLandmarks): InsoleFrame {
@@ -55,6 +61,8 @@ export function buildInsoleFrame(lm: FrameLandmarks): InsoleFrame {
     arch: lm.archPeak ? toFrame(lm.archPeak) : null,
     archStart: lm.archStart ? toFrame(lm.archStart) : null,
     archEnd: lm.archEnd ? toFrame(lm.archEnd) : null,
+    medialMalleolus: lm.medialMalleolus ? [...toFrame(lm.medialMalleolus), lm.medialMalleolus[2]] : null,
+    lateralMalleolus: lm.lateralMalleolus ? [...toFrame(lm.lateralMalleolus), lm.lateralMalleolus[2]] : null,
   };
 }
 

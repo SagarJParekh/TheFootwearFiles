@@ -81,7 +81,7 @@ export default function App() {
         {hasDoc && (
           <aside className="sidebar right">
             <div className="tabs">
-              <button className={rightTab === 'landmarks' ? 'active' : ''} onClick={() => useStore.setState({ rightTab: 'landmarks' })}>
+              <button className={rightTab === 'landmarks' ? 'active' : ''} onClick={() => useStore.setState({ rightTab: 'landmarks' })} data-testid="tab-landmarks">
                 Landmarks
               </button>
               <button

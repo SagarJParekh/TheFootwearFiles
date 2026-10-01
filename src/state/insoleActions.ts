@@ -34,6 +34,17 @@ export function insoleLandmarks(doc: ProjectDocument): { lm: FrameLandmarks | nu
   return { lm, missing };
 }
 
+/** As insoleLandmarks, plus the malleoli (footwear: the shoe collar is kept below them). */
+export function footwearLandmarks(doc: ProjectDocument): { lm: FrameLandmarks | null; missing: string[] } {
+  const r = insoleLandmarks(doc);
+  if (!r.lm) return r;
+  for (const id of ['medialMalleolus', 'lateralMalleolus'] as const) {
+    const l = doc.landmarks[id];
+    if (l) r.lm[id] = applyTransform(doc.transform, l.local);
+  }
+  return r;
+}
+
 /** "Create the insole" toggle (with the chosen type). Suggests the shoe size from the scan footprint. */
 export async function setInsoleEnabled(enabled: boolean, type: InsoleType = get().pendingInsoleType): Promise<void> {
   const { doc } = get();

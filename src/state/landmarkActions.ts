@@ -19,7 +19,7 @@ export function selectLandmark(id: LandmarkId | null): void {
 function nextMissing(after: LandmarkId): LandmarkId | null {
   const { doc } = get();
   if (!doc?.scan) return null;
-  const defs = landmarksForScanType(doc.scan.type);
+  const defs = landmarksForScanType(doc.scan.type, get().designCategory === 'footwear');
   const start = defs.findIndex((d) => d.id === after);
   for (let i = 1; i <= defs.length; i++) {
     const d = defs[(start + i) % defs.length];

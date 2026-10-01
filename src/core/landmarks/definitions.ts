@@ -59,8 +59,12 @@ export const LANDMARK_BY_ID: Record<LandmarkId, LandmarkDefinition> = Object.fro
   LANDMARKS.map((l) => [l.id, l]),
 ) as Record<LandmarkId, LandmarkDefinition>;
 
-export function landmarksForScanType(scanType: ScanType): LandmarkDefinition[] {
-  return LANDMARKS.filter((l) => l.scanTypes.includes(scanType));
+/** The ankle landmarks: always offered when designing footwear (the shoe collar is kept below them). */
+export const ANKLE_LANDMARKS: LandmarkId[] = ['medialMalleolus', 'lateralMalleolus'];
+
+/** Landmarks offered for a scan type; `footwear` adds the malleoli on any scan type. */
+export function landmarksForScanType(scanType: ScanType, footwear = false): LandmarkDefinition[] {
+  return LANDMARKS.filter((l) => l.scanTypes.includes(scanType) || (footwear && ANKLE_LANDMARKS.includes(l.id)));
 }
 
 export const SCAN_TYPE_LABEL: Record<ScanType, string> = { plantar: 'Plantar surface', lowerLimb: 'Lower limb' };

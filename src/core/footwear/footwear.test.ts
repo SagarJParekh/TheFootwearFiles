@@ -373,6 +373,30 @@ describe('footwear generator', () => {
     }
   });
 
+  it('shoe collar: the rim stays the set gap below the malleoli (MM / LM landmarks)', () => {
+    const m = lowerLimbScan();
+    // most prominent points of the fixture's ankle bones (medial higher and more anterior)
+    const mall = { medialMalleolus: [-42, 52, 88] as [number, number, number], lateralMalleolus: [46, 40, 76] as [number, number, number] };
+    const f = prepareFootData(samplePlantarSurface(m.positions, m.indices, { ...landmarks(), ...mall }), m.positions, m.indices);
+    const p = defaultFootwearParams(6, 'shoe');
+    p.shoe.collarHeight = 90; // would reach over the ankle bones without the landmarks
+    const without = generateFootwear(prepareFootData(samplePlantarSurface(m.positions, m.indices, landmarks()), m.positions, m.indices), p);
+    expect(without.ankle).toBeNull();
+    const r = generateFootwear(f, p);
+    expect(r.ankle!.medial!).toBeGreaterThanOrEqual(5 - 0.1);
+    expect(r.ankle!.lateral!).toBeGreaterThanOrEqual(5 - 0.1);
+    // close to the gap, not far below it (flat under the bone)
+    expect(Math.min(r.ankle!.medial!, r.ankle!.lateral!)).toBeLessThan(8);
+    const rule = r.rules.find((x) => /malleoli/.test(x.rule))!;
+    expect(rule.ok).toBe(true);
+    expect(r.rules.every((x) => x.ok), r.rules.map((x) => `${x.rule}: ${x.value}`).join(' | ')).toBe(true);
+    // a larger gap lowers the collar there
+    const r10 = generateFootwear(f, { ...p, shoe: { ...p.shoe, malleolusGap: 10 } });
+    expect(Math.min(r10.ankle!.medial!, r10.ankle!.lateral!)).toBeGreaterThanOrEqual(10 - 0.1);
+    // chappals ignore the malleoli
+    expect(generateFootwear(f, defaultFootwearParams(6, 'chappal')).ankle).toBeNull();
+  });
+
   it('open full scans (cut at the leg, scanner holes): the real top of the foot is used and nothing gets too close', () => {
     const m = lowerLimbScan();
     const f = prepareFootData(samplePlantarSurface(m.positions, m.indices, landmarks()), m.positions, m.indices);

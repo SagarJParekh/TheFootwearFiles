@@ -240,7 +240,8 @@ Straps and wings can be **solid** (smooth, pillow edges) or a **lattice panel**:
 **Shoe:** the same sole (with a lattice side wall by default), plus a **smooth last-like upper**, a slip-on like the reference lattice shoes.
 - Its cross-sections stand on the rim and are fitted around the foot, then smoothed along it.
 - It carries a **double-skin lattice**: a regular triangulated lattice (nodes spaced evenly along each section and zipped between sections), a second copy of it 0.6 × the cell size further out, and crossing diagonals between the two (an X in section).
-- It is fully enclosed: toes, dorsum, sides and heel counter. The only opening is at the ankle, with a clean solid collar rim. The top line has a heel tab, dips under the ankle bones and rises in a rounded curve to the throat (45 % of the length by default).
+- It is fully enclosed: toes, dorsum, sides and heel counter. The only opening is at the ankle, with a clean solid collar rim.
+- **Collar below the ankle bones:** choosing Footwear adds the **medial (MM) and lateral (LM) malleolus** landmarks to the landmark list, on every scan type. With them placed, the collar line is capped so the top of the collar rim stays **5 mm below each malleolus** (setting: *Collar rim below the malleoli*, 3–15 mm). The cap is flat under each bone (±18 mm along the foot) and then rises smoothly, so the rim doesn't pinch the skin. It is checked on the result as a design rule (*Collar rim at least 5 mm below the malleoli*, the vertical gap on each bone's side). Until they are placed, the panel asks for them. The top line has a heel tab, dips under the ankle bones and rises in a rounded curve to the throat (45 % of the length by default).
 
 **Full scans that are open** (cut above the ankle, scanner holes): the straps and upper use the scanned top of the foot. For the clearance checks the holes are closed with smooth patches first, because next to an open edge the inside/outside test is unreliable.
 

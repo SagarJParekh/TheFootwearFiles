@@ -72,6 +72,12 @@ try {
     check(s.p.chappalStyle === style && !s.err && s.rules.every((r) => r.ok), `${style}: generated, rules met${s.warnings.length ? ` (note: ${s.warnings[0].slice(0, 50)}…)` : ''}`);
   }
 
+  // Footwear asks for the malleoli (the shoe collar is kept below them)
+  await page.click('[data-testid=tab-landmarks]');
+  check((await page.locator('[data-testid=lm-medialMalleolus]').count()) === 1 && (await page.locator('[data-testid=lm-lateralMalleolus]').count()) === 1 && (await page.isVisible('[data-testid=ankle-landmarks-hint]')),
+    'footwear: the landmark list asks for the medial and lateral malleolus');
+  await page.click('[data-testid=tab-insole]');
+
   // Reference designs (presets modelled on the team's reference STLs)
   await page.selectOption('[data-testid=fw-design]', 'latticeSlide');
   await settle();
@@ -87,6 +93,7 @@ try {
   await settle();
   s = await state();
   check(s.kind === 'shoe' && s.p.sideWall === 'lattice' && s.upperGap?.min >= 0.97 && rulesOk(s), `shoe: double-skin lattice upper on a lattice sole wall, rules met (footbed ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm, upper ${s.upperGap?.min.toFixed(1)}–${s.upperGap?.max.toFixed(1)} mm from the foot)`);
+  check(await page.isVisible('[data-testid=fw-malleoli-missing]'), 'shoe: prompts for the malleolus landmarks');
   await page.selectOption('[data-testid=fw-design]', 'knitSlipOn');
   await settle();
   s = await state();

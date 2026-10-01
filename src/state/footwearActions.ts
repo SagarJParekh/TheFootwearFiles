@@ -8,7 +8,7 @@ import { suggestShoeSize } from '../core/insole/params';
 import { defaultFootwearParams, REFERENCE_DESIGNS, type DesignId, type FootwearKind, type FootwearParams } from '../core/footwear/params';
 import { meshWorker, withMesh } from '../workers/meshClient';
 import { setView, useStore, commit, beginGesture, updateLive, endGesture } from './store';
-import { insoleLandmarks } from './insoleActions';
+import { footwearLandmarks } from './insoleActions';
 import { withBusy } from './actions';
 
 const get = useStore.getState;
@@ -27,7 +27,7 @@ export async function setFootwearEnabled(enabled: boolean, kind: FootwearKind = 
     commit('Remove footwear', (d) => ({ ...d, footwear: null }));
     return;
   }
-  const { lm, missing } = insoleLandmarks(doc);
+  const { lm, missing } = footwearLandmarks(doc);
   if (!lm) {
     set({ error: `Place these landmarks first: ${missing.join(', ')}` });
     return;
@@ -97,7 +97,7 @@ async function regenerate(): Promise<void> {
     if (get().footwear) set({ footwear: null, footwearError: null });
     return;
   }
-  const { lm, missing } = insoleLandmarks(doc);
+  const { lm, missing } = footwearLandmarks(doc);
   if (!lm) {
     set({ footwearError: `Missing landmarks: ${missing.join(', ')}` });
     return;
@@ -129,7 +129,7 @@ useStore.subscribe((state, prev) => {
 export async function exportFootwearStl(merge: boolean): Promise<{ data: ArrayBuffer; fileName: string } | undefined> {
   const { doc } = get();
   if (!doc?.footwear) return;
-  const { lm } = insoleLandmarks(doc);
+  const { lm } = footwearLandmarks(doc);
   if (!lm) return;
   const p = doc.footwear;
   const base = doc.meta.sourceFileName.replace(/\.[^.]+$/, '') || 'scan';

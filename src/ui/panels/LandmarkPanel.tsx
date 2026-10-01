@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { landmarksForScanType, SCAN_TYPE_LABEL, SIDE_LABEL } from '../../core/landmarks/definitions';
+import { ANKLE_LANDMARKS, landmarksForScanType, SCAN_TYPE_LABEL, SIDE_LABEL } from '../../core/landmarks/definitions';
 import { applyTransform } from '../../core/math/transform';
 import {
   clearAllLandmarks,
@@ -18,6 +18,7 @@ export function LandmarkPanel() {
   const doc = useStore((s) => s.doc);
   const active = useStore((s) => s.activeLandmark);
   const tool = useStore((s) => s.tool);
+  const footwear = useStore((s) => s.designCategory === 'footwear');
   const offSurface = useStore((s) => s.offSurface);
   const importRef = useRef<HTMLInputElement>(null);
   if (!doc) return null;
@@ -29,7 +30,10 @@ export function LandmarkPanel() {
       </Panel>
     );
   }
-  const defs = landmarksForScanType(doc.scan.type);
+  // footwear adds the malleoli (also shown once placed, whatever is being designed)
+  const withAnkle = footwear || ANKLE_LANDMARKS.some((id) => doc.landmarks[id]);
+  const defs = landmarksForScanType(doc.scan.type, withAnkle);
+  const ankleMissing = withAnkle && doc.scan.type === 'plantar' && ANKLE_LANDMARKS.some((id) => !doc.landmarks[id]);
   const placed = defs.filter((d) => doc.landmarks[d.id]).length;
 
   return (
@@ -38,6 +42,12 @@ export function LandmarkPanel() {
         {SCAN_TYPE_LABEL[doc.scan.type]} · {SIDE_LABEL[doc.scan.side]} foot.{' '}
         {tool === 'landmark' && active ? 'Click the surface to place the highlighted landmark.' : 'Select a landmark, then click the surface.'}
       </p>
+      {footwear && ANKLE_LANDMARKS.some((id) => !doc.landmarks[id]) && (
+        <p className="hint warn" data-testid="ankle-landmarks-hint">
+          Footwear: also place the <b>medial (MM)</b> and <b>lateral (LM) malleolus</b> – the most prominent point of each ankle bone. The shoe collar is kept below them.
+          {ankleMissing ? ' (This scan type is a plantar scan: place them only if the scan shows the ankle.)' : ''}
+        </p>
+      )}
       <ul className="lm-list" data-testid="landmark-list">
         {defs.map((def) => {
           const l = doc.landmarks[def.id];

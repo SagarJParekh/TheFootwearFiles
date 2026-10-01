@@ -68,8 +68,11 @@ export interface FootwearParams {
   upperPattern: UpperPattern;
   /** Thong / split-toe: width of each strap wing where it grows out of the sole wall (mm). */
   thongArmWidth: number;
-  /** Shoe upper: collar height above the footbed, throat position (fraction of length), collar rim diameter. */
-  shoe: { collarHeight: number; throat: number; collarDiameter: number };
+  /**
+   * Shoe upper: collar height above the footbed, throat position (fraction of length), collar rim
+   * diameter, and how far the top of the collar rim stays below each malleolus (when placed).
+   */
+  shoe: { collarHeight: number; throat: number; collarDiameter: number; malleolusGap: number };
 }
 
 export const FOOTWEAR_RULES = {
@@ -94,6 +97,7 @@ export const FOOTWEAR_RANGES = {
   collarHeight: { min: 25, max: 90, step: 1, unit: 'mm' },
   throat: { min: 0.4, max: 0.75, step: 0.01 },
   collarDiameter: { min: 2, max: 4, step: 0.1, unit: 'mm' },
+  malleolusGap: { min: 3, max: 15, step: 0.5, unit: 'mm' },
 } satisfies Record<string, Range>;
 
 export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chappal'): FootwearParams {
@@ -120,7 +124,7 @@ export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chap
     strapPattern: 'solid',
     upperPattern: 'grid',
     thongArmWidth: 55,
-    shoe: { collarHeight: 55, throat: 0.45, collarDiameter: 3 },
+    shoe: { collarHeight: 55, throat: 0.45, collarDiameter: 3, malleolusGap: 5 },
   };
 }
 
@@ -162,6 +166,7 @@ export function normalizeFootwearParams(raw: unknown): FootwearParams {
       collarHeight: clampTo(r.shoe?.collarHeight, R.collarHeight, d.shoe.collarHeight),
       throat: clampTo(r.shoe?.throat, R.throat, d.shoe.throat),
       collarDiameter: clampTo(r.shoe?.collarDiameter, R.collarDiameter, d.shoe.collarDiameter),
+      malleolusGap: clampTo(r.shoe?.malleolusGap, R.malleolusGap, d.shoe.malleolusGap),
     },
   };
 }

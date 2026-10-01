@@ -52,7 +52,7 @@ export function ScanSetupDialog() {
     commit('Scan setup', (doc) => {
       if (doc.scan?.type === type && doc.scan.side === side) return doc;
       // Drop landmarks that are not offered for the new scan type.
-      const allowed = new Set(landmarksForScanType(type).map((l) => l.id));
+      const allowed = new Set(landmarksForScanType(type, true).map((l) => l.id)); // (malleoli are kept for footwear)
       const landmarks = Object.fromEntries(Object.entries(doc.landmarks).filter(([id]) => allowed.has(id as never)));
       return { ...doc, scan: { type, side }, landmarks };
     });

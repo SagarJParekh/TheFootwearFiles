@@ -150,6 +150,12 @@ export function FootwearPanel({ ready }: { ready: boolean }) {
               <Slider label="Collar height (above the footbed)" range={R.collarHeight} value={p.shoe.collarHeight} set={(q, v) => ({ ...q, shoe: { ...q.shoe, collarHeight: v } })} />
               <Slider label="Throat (opening ends, fraction of length)" range={R.throat} value={p.shoe.throat} set={(q, v) => ({ ...q, shoe: { ...q.shoe, throat: v } })} />
               <Slider label="Collar rim diameter (solid)" range={R.collarDiameter} value={p.shoe.collarDiameter} set={(q, v) => ({ ...q, shoe: { ...q.shoe, collarDiameter: v } })} />
+              <Slider label="Collar rim below the malleoli" range={R.malleolusGap} value={p.shoe.malleolusGap} set={(q, v) => ({ ...q, shoe: { ...q.shoe, malleolusGap: v } })} testId="fw-malleolus-gap" />
+              {!(doc.landmarks.medialMalleolus && doc.landmarks.lateralMalleolus) && (
+                <div className="hint warn" data-testid="fw-malleoli-missing">
+                  Place the medial (MM) and lateral (LM) malleolus landmarks (Landmarks tab) so the collar rim is kept {p.shoe.malleolusGap} mm below the ankle bones and doesn't pinch the skin.
+                </div>
+              )}
             </>
           )}
         </Panel>
