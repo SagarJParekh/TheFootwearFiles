@@ -16,3 +16,6 @@ declare module 'rhino3dm/rhino3dm.module.js' {
   const init: (module?: { locateFile?: (path: string) => string }) => Promise<unknown>;
   export default init;
 }
+
+/** Commit and date of the running version (vite.config.ts). */
+declare const __APP_VERSION__: string;

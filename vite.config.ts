@@ -1,8 +1,19 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { execSync } from 'node:child_process';
+
+/** Version shown in the app (commit + date), so it is easy to check which version is running. */
+function appVersion(): string {
+  try {
+    return execSync('git log -1 --format="%h · %cd" --date=format:"%d %b %Y %H:%M"', { encoding: 'utf8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
 
 export default defineConfig({
   plugins: [react()],
+  define: { __APP_VERSION__: JSON.stringify(appVersion()) },
   worker: { format: 'es' },
   optimizeDeps: {
     exclude: ['manifold-3d'],

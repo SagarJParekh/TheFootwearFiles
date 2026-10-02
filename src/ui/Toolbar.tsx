@@ -41,7 +41,8 @@ export function Toolbar({ right }: { right?: React.ReactNode }) {
 
   return (
     <div className="toolbar">
-      <span className="brand">Footwear Files</span>
+      <span className="brand" title={`Version ${__APP_VERSION__}`}>Footwear Files</span>
+      <span className="version" data-testid="app-version">v {__APP_VERSION__}</span>
       <button onClick={() => inputRef.current?.click()} title="Open a 3D model (STL, OBJ, PLY, 3MF, AMF, glTF/GLB, STEP, IGES, 3DM, …), a .tffproj project or landmarks .json">
         Open…
       </button>
