@@ -290,6 +290,13 @@ describe('footwear generator', () => {
     expect(toe).toBeGreaterThan(5);
     expect(heel).toBeGreaterThan(5);
     expect(Math.max(...zs) - Math.min(...zs)).toBeGreaterThan(2);
+    // single skin: one layer, fewer struts, same rules; footbed skin: a solid footbed over the lattice
+    const single = gen((p) => { p.shoe.finish = 'lattice'; p.shoe.skins = 'single'; }, 'shoe');
+    expect(single.strutCount).toBeLessThan(r.strutCount);
+    expect(single.rules.every((x) => x.ok)).toBe(true);
+    const skin = gen((p) => { p.shoe.finish = 'lattice'; p.footbedSkin = true; }, 'shoe');
+    expect(skin.parts.solids).toHaveLength(2);
+    expect(skin.rules.every((x) => x.ok), skin.rules.map((x) => `${x.rule}: ${x.value}`).join(' | ')).toBe(true);
   });
 
   it('side wall options and tread', () => {

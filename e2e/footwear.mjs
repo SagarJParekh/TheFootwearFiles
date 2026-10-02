@@ -113,7 +113,17 @@ try {
   await settle();
   s = await state();
   check(s.kind === 'shoe' && s.p.shoe.finish === 'solid' && s.struts === 0 && rulesOk(s), `shoe: designed as one smooth solid first, rules met (footbed ${s.clearance.min.toFixed(2)}–${s.clearance.max.toFixed(2)} mm)`);
-  await page.selectOption('[data-testid=fw-finish]', 'lattice');
+  check((await page.locator('[data-testid=fw-lattice-settings]').count()) === 0, 'solid shoe: no lattice questions yet');
+  await page.click('[data-testid=fw-to-lattice] + span');
+  await settle();
+  s = await state();
+  check(await page.isVisible('[data-testid=fw-lattice-settings]') && await page.isVisible('[data-testid=fw-convert-summary]'), 'convert to lattice: the lattice settings and what the conversion does are shown');
+  const doubleStruts = s.struts;
+  await page.selectOption('[data-testid=fw-skins]', 'single');
+  await settle();
+  const single = await state();
+  check(single.p.shoe.skins === 'single' && single.struts < doubleStruts && rulesOk(single), `single-skin lattice: fewer struts (${single.struts} vs ${doubleStruts}), rules met`);
+  await page.keyboard.press('Control+z');
   await settle();
   s = await state();
   check(s.p.shoe.finish === 'lattice' && s.struts > 3000 && s.upperGap?.min >= 0.97 && rulesOk(s), `shoe: lattice finish at the end (${s.struts} struts, upper ${s.upperGap?.min.toFixed(1)}–${s.upperGap?.max.toFixed(1)} mm from the foot), rules met`);

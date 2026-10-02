@@ -242,7 +242,21 @@ Straps and wings can be **solid** (smooth, pillow edges) or a **lattice panel**:
 - **Outside:** the inside thickened by the upper wall (*Upper wall thickness*), blended smoothly into the sole block. The upper, midsole and sole are **one continuous piece** with no ledges, and the shoe is closed over the toes and around the heel.
 - **Opening:** everything above a smooth collar line is cut away with a rounded edge. The line has a heel tab, dips under the ankle bones, rises in a round U to the throat (45 % of the length by default), and closes over the instep in front of it.
 - Everything is one signed distance field on a voxel grid (1 / 0.7 mm), meshed with marching tetrahedra as one watertight surface.
-- **Upper finish → Lattice** (set it at the end): only bands of the same body stay solid, namely the outsole plate, the sole side wall (*Sole side wall: solid*) and the collar rim (*Collar rim band*). The upper wall becomes a **double-skin strut lattice** laid on the wall's mid-surface (about one cell per strut, *grid* or *diamond*), covering the whole closed shell, heel and toes included. Struts are flush with the wall's inner and outer faces and braced by crossing diagonals. The sole interior is the midsole lattice under the contoured footbed. Loose fragments under 30 struts are dropped.
+- **Two steps in the panel.**
+  - **Step 1 · Design the solid shoe.** Set the fit (clearance, toe room), the sole (thickness, outsole, toe spring, side height, tread) and the upper (wall thickness, collar height, throat, collar gap below the malleoli), all on the smooth solid.
+  - **Step 2 · Convert to lattice** (a switch at the end). The shape stays the same, and the panel then asks for the lattice settings:
+    - strut thickness (rule 1.2–1.8 mm)
+    - cell size
+    - pattern (grid / diamond)
+    - lattice layers (*double skin, braced*: struts flush with both faces of the wall plus crossing diagonals; or *single skin*: one layer in the middle of the wall)
+    - lattice layer thickness (= the upper wall)
+
+    It also asks what stays solid:
+    - the sole side wall (solid band up to the side height, or lattice)
+    - the collar rim thickness (a solid band below the top edge)
+    - an optional 1.2 mm solid footbed skin
+
+    A summary in the panel says what stays solid, what becomes lattice and the strut count. The outsole always stays solid. The upper wall becomes the strut lattice over the whole closed shell, heel and toes included. The sole interior becomes the 3D midsole lattice under the footbed. Loose fragments under 30 struts are dropped.
 - **Collar below the ankle bones:** the **medial (MM) and lateral (LM) malleolus** landmarks are listed on every scan type. When you choose **Footwear** and they are missing, the app asks for them straight away: a banner over the 3D view says which one to click, placing MM moves on to LM, and then it stops. *Later* skips this. The Footwear panel shows their status, with a **Place MM and LM now** button. With them placed, the collar line is capped so the top of the collar rim stays **5 mm below each malleolus** (setting: *Collar rim below the malleoli*, 3–15 mm). The cap is flat under each bone (±18 mm along the foot) and then rises smoothly, so the rim doesn't pinch the skin. It is checked on the result as a design rule (*Collar rim at least 5 mm below the malleoli*, the vertical gap on each bone's side). Until they are placed, the panel asks for them. Each side of the collar follows its own malleolus; they blend across the back of the heel.
 
 **Full scans that are open** (cut above the ankle, scanner holes): the straps and upper use the scanned top of the foot. Columns of the ankle/leg are recognised (scan above 90 mm, or open at the top) and treated as solid up to the top. A hole in the sole can't raise the footbed, because the plantar surface may rise at most 1.2 mm per mm. For the clearance checks the holes are closed with smooth patches first, because next to an open edge the inside/outside test is unreliable.

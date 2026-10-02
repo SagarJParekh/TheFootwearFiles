@@ -55,6 +55,8 @@ export interface ShoeBodyInput {
   cell: number;
   radius: number;
   pattern: 'grid' | 'diamond';
+  /** double: inner + outer skin braced by diagonals; single: one layer on the wall's mid-surface */
+  skins: 'double' | 'single';
   toWorld: (a: number, b: number, z: number) => [number, number, number];
 }
 
@@ -303,7 +305,8 @@ function upperLattice(I: ShoeBodyInput, vol: Vol, phi: Float32Array): Lattice {
     if (at(I.outlineSdf, a, b) < -I.soleWall - 1 && z < at(I.T, a, b) + 1) return false; // sole interior
     return true;
   };
-  const off = Math.max(0, mid - r - 0.05); // skins: strut surfaces flush with the wall's faces
+  // double: strut surfaces flush with the wall's two faces; single: one layer in the middle
+  const off = I.skins === 'single' ? 0 : Math.max(0, mid - r - 0.05);
   const out = emptyLattice();
   const ids = new Map<number, [number, number]>();
   const nodeOf = (v: number) => {

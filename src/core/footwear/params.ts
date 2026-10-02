@@ -16,6 +16,7 @@ export type ChappalStyle = 'slide' | 'thong' | 'splitToe';
 export type TreadPattern = 'none' | 'hexagon' | 'diamond' | 'waves';
 export type SideWall = 'solid' | 'lattice';
 export type ShoeFinish = 'solid' | 'lattice';
+export type LatticeSkins = 'double' | 'single';
 /** Chappal straps / wings: a smooth solid sheet, or an open lattice panel with a solid border. */
 export type StrapPattern = 'solid' | 'lattice';
 /** Shoe upper lattice: triangulated grid, or diamonds (a knit look). */
@@ -83,6 +84,8 @@ export interface FootwearParams {
     wall: number;
     /** Design the shoe as a smooth solid first; switch to lattice at the end. */
     finish: ShoeFinish;
+    /** Lattice finish: two skins braced by diagonals (stiffer) or one skin (lighter, more open). */
+    skins: LatticeSkins;
   };
 }
 
@@ -136,7 +139,7 @@ export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chap
     strapPattern: 'solid',
     upperPattern: 'grid',
     thongArmWidth: 55,
-    shoe: { collarHeight: 55, throat: 0.45, collarDiameter: 5, malleolusGap: 5, wall: 4, finish: 'solid' },
+    shoe: { collarHeight: 55, throat: 0.45, collarDiameter: 5, malleolusGap: 5, wall: 4, finish: 'solid', skins: 'double' },
   };
 }
 
@@ -181,6 +184,7 @@ export function normalizeFootwearParams(raw: unknown): FootwearParams {
       malleolusGap: clampTo(r.shoe?.malleolusGap, R.malleolusGap, d.shoe.malleolusGap),
       wall: clampTo(r.shoe?.wall, R.shoeWall, d.shoe.wall),
       finish: r.shoe?.finish === 'lattice' ? 'lattice' : 'solid',
+      skins: r.shoe?.skins === 'single' ? 'single' : 'double',
     },
   };
 }
@@ -234,3 +238,4 @@ export const REFERENCE_DESIGNS: Record<Exclude<DesignId, 'custom'>, { kind: Foot
 };
 
 export const SHOE_FINISH_LABEL: Record<ShoeFinish, string> = { solid: 'Solid (design the shape first)', lattice: 'Lattice (final)' };
+export const LATTICE_SKINS_LABEL: Record<LatticeSkins, string> = { double: 'Double skin, braced (stiffer)', single: 'Single skin (lighter, more open)' };

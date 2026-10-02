@@ -709,8 +709,8 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
 
   // Optional smooth footbed skin (solid) on the contoured footbed, over the lattice.
   const SKIN = 1.2;
-  // (shoes: the solid finish has its own footbed; the lattice finish keeps the open lattice top)
-  const skinOn = p.footbedSkin && p.kind !== 'shoe';
+  // (shoes: the solid finish has its own footbed; the lattice finish may have the skin)
+  const skinOn = p.footbedSkin && (p.kind !== 'shoe' || p.shoe.finish === 'lattice');
   let skinSolid = -1;
   if (skinOn) {
     const inner = outlineSdf.map((d) => d + wall - 0.3);
@@ -990,12 +990,17 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       g, silhouetteSdf: foot.silhouetteSdf, bed: foot.bed, top: foot.top, legColumn: foot.legColumn, T, bottom: Btread, plateTop, outlineSdf,
       collarZ, sideTop: rimZ, clearance: c, wall: p.shoe.wall, toeAllowance: p.toeAllowance, bBall: bMT,
       voxel: Math.max(det.fuseVoxel, p.detail === 'standard' ? 1 : 0.7), finish: p.shoe.finish, sideWall: p.sideWall, collarBand: p.shoe.collarDiameter,
-      soleWall: wall, cell: p.cellSize, radius: r, pattern: p.upperPattern, toWorld,
+      soleWall: wall, cell: p.cellSize, radius: r, pattern: p.upperPattern, skins: p.shoe.skins, toWorld,
     });
     // the body replaces the separate sole plate and rim
+    const skinMesh = skinSolid >= 0 ? solids[skinSolid] : null;
     solids.length = 0;
     heightSolids.length = 0;
     solids.push(keepClearNear(shoeBody.solid, foot, scanProbe, c));
+    if (skinMesh) {
+      skinSolid = solids.length;
+      solids.push(skinMesh);
+    }
     if (p.shoe.finish === 'solid') {
       lattice.nodes.length = 0;
       lattice.edges.length = 0;
