@@ -86,6 +86,10 @@ export interface FootwearParams {
     finish: ShoeFinish;
     /** Lattice finish: two skins braced by diagonals (stiffer) or one skin (lighter, more open). */
     skins: LatticeSkins;
+    /** Lattice finish: midsole lattice (between footbed, side wall and outsole) cell size – its density. */
+    midsoleCell: number;
+    /** Lattice finish: midsole strut diameter (mm). */
+    midsoleStrut: number;
   };
 }
 
@@ -113,6 +117,7 @@ export const FOOTWEAR_RANGES = {
   collarDiameter: { min: 2, max: 12, step: 0.5, unit: 'mm' },
   shoeWall: { min: 2.5, max: 8, step: 0.1, unit: 'mm' },
   malleolusGap: { min: 3, max: 15, step: 0.5, unit: 'mm' },
+  midsoleCell: { min: 4, max: 14, step: 0.5, unit: 'mm' },
 } satisfies Record<string, Range>;
 
 export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chappal'): FootwearParams {
@@ -126,7 +131,7 @@ export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chap
     clearance: 1.5,
     strutDiameter: 1.5,
     cellSize: 6,
-    soleThickness: kind === 'shoe' ? 9 : 10,
+    soleThickness: kind === 'shoe' ? 12 : 10,
     outsoleThickness: 2.5,
     toeSpring: 8,
     rimHeight: kind === 'shoe' ? 8 : 10,
@@ -139,7 +144,7 @@ export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chap
     strapPattern: 'solid',
     upperPattern: 'grid',
     thongArmWidth: 55,
-    shoe: { collarHeight: 55, throat: 0.45, collarDiameter: 5, malleolusGap: 5, wall: 4, finish: 'solid', skins: 'double' },
+    shoe: { collarHeight: 55, throat: 0.45, collarDiameter: 5, malleolusGap: 5, wall: 4, finish: 'solid', skins: 'double', midsoleCell: 7, midsoleStrut: 1.5 },
   };
 }
 
@@ -185,6 +190,8 @@ export function normalizeFootwearParams(raw: unknown): FootwearParams {
       wall: clampTo(r.shoe?.wall, R.shoeWall, d.shoe.wall),
       finish: r.shoe?.finish === 'lattice' ? 'lattice' : 'solid',
       skins: r.shoe?.skins === 'single' ? 'single' : 'double',
+      midsoleCell: clampTo(r.shoe?.midsoleCell, R.midsoleCell, d.shoe.midsoleCell),
+      midsoleStrut: clampTo(r.shoe?.midsoleStrut, R.strutDiameter, d.shoe.midsoleStrut),
     },
   };
 }
@@ -229,11 +236,11 @@ export const REFERENCE_DESIGNS: Record<Exclude<DesignId, 'custom'>, { kind: Foot
   },
   latticeSneaker: {
     kind: 'shoe', label: 'Lattice sneaker', like: 'Shoes, Sagar_Shoes_red',
-    set: (p) => ({ ...p, upperPattern: 'grid', sideWall: 'lattice', cellSize: 7, soleThickness: 9, tread: 'hexagon', shoe: { ...p.shoe, collarHeight: 60, throat: 0.45 } }),
+    set: (p) => ({ ...p, upperPattern: 'grid', sideWall: 'lattice', cellSize: 7, soleThickness: 12, tread: 'hexagon', shoe: { ...p.shoe, collarHeight: 60, throat: 0.45 } }),
   },
   knitSlipOn: {
     kind: 'shoe', label: 'Knit slip-on', like: 'Left/Right shoe_v1, sagar shoes',
-    set: (p) => ({ ...p, upperPattern: 'diamond', sideWall: 'lattice', cellSize: 6, soleThickness: 9, tread: 'diamond', shoe: { ...p.shoe, collarHeight: 55, throat: 0.45 } }),
+    set: (p) => ({ ...p, upperPattern: 'diamond', sideWall: 'lattice', cellSize: 6, soleThickness: 12, tread: 'diamond', shoe: { ...p.shoe, collarHeight: 55, throat: 0.45 } }),
   },
 };
 

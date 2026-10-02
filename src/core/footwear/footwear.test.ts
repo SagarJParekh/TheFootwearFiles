@@ -299,6 +299,37 @@ describe('footwear generator', () => {
     expect(skin.rules.every((x) => x.ok), skin.rules.map((x) => `${x.rule}: ${x.value}`).join(' | ')).toBe(true);
   });
 
+  it('shoe, lattice finish: the outer shell (upper, side wall, footbed) and the midsole are one connected lattice; midsole density is its own setting', () => {
+    const r = gen((p) => (p.shoe.finish = 'lattice'), 'shoe');
+    const l = r.parts.lattice;
+    // one piece: union-find over the struts
+    const parent = new Int32Array(l.nodes.length / 3).map((_, i) => i);
+    const find = (v: number): number => (parent[v] === v ? v : (parent[v] = find(parent[v])));
+    for (let e = 0; e < l.edges.length; e += 2) parent[find(l.edges[e])] = find(l.edges[e + 1]);
+    const size = new Map<number, number>();
+    for (let e = 0; e < l.edges.length; e += 2) size.set(find(l.edges[e]), (size.get(find(l.edges[e])) ?? 0) + 1);
+    expect(Math.max(...size.values()) / (l.edges.length / 2)).toBeGreaterThan(0.98);
+    // the side wall is lattice from the outsole up to the upper: struts on the outer side at every height
+    const f = foot.surface.frame;
+    const heights = new Set<number>();
+    let aMax = -Infinity;
+    for (let v = 0; v < l.nodes.length / 3; v++) aMax = Math.max(aMax, worldToFrame(f, l.nodes[3 * v], l.nodes[3 * v + 1])[0]);
+    for (let v = 0; v < l.nodes.length / 3; v++) {
+      const [a, b] = worldToFrame(f, l.nodes[3 * v], l.nodes[3 * v + 1]);
+      if (a > aMax - 6 && b > 60 && b < 140) heights.add(Math.floor(l.nodes[3 * v + 2] / 4));
+    }
+    const hs = [...heights].sort((x, y) => x - y);
+    expect(hs.length).toBeGreaterThan(3);
+    expect(hs.every((h, i) => i === 0 || h - hs[i - 1] <= 1)).toBe(true); // (no gap in height)
+    // midsole: denser with smaller cells, its own strut thickness
+    const dense = gen((p) => { p.shoe.finish = 'lattice'; p.shoe.midsoleCell = 5; }, 'shoe');
+    const open = gen((p) => { p.shoe.finish = 'lattice'; p.shoe.midsoleCell = 11; }, 'shoe');
+    expect(dense.strutCount).toBeGreaterThan(open.strutCount);
+    const thick = gen((p) => { p.shoe.finish = 'lattice'; p.shoe.midsoleStrut = 1.8; }, 'shoe');
+    expect(thick.strut).toEqual({ min: 1.5, max: 1.8 });
+    for (const x of [dense, open, thick]) expect(x.rules.every((q) => q.ok), x.rules.map((q) => `${q.rule}: ${q.value}`).join(' | ')).toBe(true);
+  });
+
   it('side wall options and tread', () => {
     const solid = gen((p) => { p.sideWall = 'solid'; p.shoe.finish = 'lattice'; }, 'shoe');
     const cageShoe = gen((p) => { p.sideWall = 'lattice'; p.shoe.finish = 'lattice'; }, 'shoe');

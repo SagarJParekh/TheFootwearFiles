@@ -9,16 +9,17 @@
  *  - opening: everything above the collar line is cut away with a rounded edge (the collar line
  *    is a smooth function along the foot, kept below the malleoli)
  *
- * Finish 'solid': the solid is meshed as is. Finish 'lattice': only bands stay solid (outsole
- * plate, sole side wall, collar rim); the upper wall becomes a double-skin strut lattice laid on
- * the wall's mid-surface (closed over the heel and toes), the sole interior is the midsole lattice
- * made by the caller.
+ * Finish 'solid': the solid is meshed as is. Finish 'lattice': only the outsole plate and the
+ * collar rim stay solid (and the sole side wall, if chosen); the outer shell – upper, footbed and
+ * sole side wall – becomes ONE continuous strut lattice on the shell's mid-surface, and the space
+ * between footbed, side wall and outsole is filled by a separate midsole lattice with its own
+ * density (see shellLattice).
  */
 import type { Grid } from '../insole/heightfield';
 import type { MeshData } from '../types';
-import { emptyLattice, sampleGrid, type Lattice } from './lattice';
+import { conformalLattice, emptyLattice, sampleGrid, type Lattice } from './lattice';
 import { gaussianBlur } from '../insole/heightfield';
-import { blur3d, edt3d, gradVol, polygonizeVol, sampleVol, volIndex, type Vol } from './volume';
+import { blur3d, edt3d, polygonizeVol, sampleVol, volIndex, type Vol } from './volume';
 
 export interface ShoeBodyInput {
   g: Grid;
@@ -48,6 +49,11 @@ export interface ShoeBodyInput {
   voxel: number;
   finish: 'solid' | 'lattice';
   sideWall: 'solid' | 'lattice';
+  /** footbed surface the foot rests on (lattice finish: the top of the footbed struts) */
+  footbedTop: Float32Array;
+  /** midsole lattice (lattice finish): cell size and strut radius */
+  midsoleCell: number;
+  midsoleRadius: number;
   /** solid collar rim band (lattice finish), mm below the collar line */
   collarBand: number;
   /** sole wall thickness (inset of the midsole lattice) */
@@ -62,8 +68,12 @@ export interface ShoeBodyInput {
 
 export interface ShoeBody {
   solid: MeshData;
-  /** upper wall lattice (lattice finish), world coordinates */
+  /** shell + midsole lattice (lattice finish), world coordinates */
   lattice: Lattice;
+  /** lattice nodes on the footbed facing the foot (for the clearance check) */
+  footbedNodes: number[];
+  /** first node of the midsole lattice (the shell's nodes come before it) */
+  midsoleStart: number;
   /** final solid field (negative inside) for checks */
   field: Float32Array;
   vol: Vol;
@@ -197,27 +207,31 @@ export function buildShoeBody(I: ShoeBodyInput): ShoeBody {
   blur3d(field, vol, 0.6); // (removes sampling streaks; edges stay crisp at this scale)
   const solid = polygonizeVol(field, vol, I.toWorld);
 
-  // --- upper lattice (lattice finish) --------------------------------------------------------
-  const lattice = I.finish === 'lattice' ? upperLattice(I, vol, phi) : emptyLattice();
-  return { solid, lattice, field, vol };
+  // --- shell + midsole lattice (lattice finish) ----------------------------------------------
+  const outer = (a: number, b: number, z: number) => {
+    const os = at(I.outlineSdf, a, b);
+    const sole = Math.max(smax(os + 2.5, at(I.bottom, a, b) - z, 4), z - (at(Tsmooth, a, b) + 2));
+    return smin(sampleVol(phi, vol, a, b, z) - t, sole, kSole);
+  };
+  const out = I.finish === 'lattice' ? shellLattice(I, vol, outer) : { lattice: emptyLattice(), footbedNodes: [], midsoleStart: 0 };
+  return { solid, lattice: out.lattice, footbedNodes: out.footbedNodes, midsoleStart: out.midsoleStart, field, vol };
 }
 
-/**
- * Double-skin strut lattice on the upper wall: a coarse triangulation (≈ one cell per edge) of the
- * wall's mid-surface (cavity offset by half the wall), kept where the wall is not one of the solid
- * bands; each edge gives an inner and an outer strut, braced by crossing diagonals.
- */
-function upperLattice(I: ShoeBodyInput, vol: Vol, phi: Float32Array): Lattice {
-  const t = I.wall, r = I.radius, s = I.cell;
-  const mid = t / 2;
-  // coarse grid sampling of (phi - mid)
+type Field = (a: number, b: number, z: number) => number;
+const gradOf = (f: Field, p: number[], e = 0.35): number[] => [
+  (f(p[0] + e, p[1], p[2]) - f(p[0] - e, p[1], p[2])) / (2 * e),
+  (f(p[0], p[1] + e, p[2]) - f(p[0], p[1] - e, p[2])) / (2 * e),
+  (f(p[0], p[1], p[2] + e) - f(p[0], p[1], p[2] - e)) / (2 * e),
+];
+
+/** A coarse strut net on the zero set of `f`: ≈ one cell per edge, welded and relaxed on the surface. */
+function surfaceNet(f: Field, vol: Vol, s: number, pattern: 'grid' | 'diamond') {
   const cv: Vol = { a0: vol.a0, b0: vol.b0, z0: vol.z0, h: s, nx: Math.ceil(((vol.nx - 1) * vol.h) / s) + 1, ny: Math.ceil(((vol.ny - 1) * vol.h) / s) + 1, nz: Math.ceil(((vol.nz - 1) * vol.h) / s) + 1 };
   const coarse = new Float32Array(cv.nx * cv.ny * cv.nz);
   for (let k = 0; k < cv.nz; k++)
-    for (let j = 0; j < cv.ny; j++)
-      for (let i = 0; i < cv.nx; i++) coarse[volIndex(cv, i, j, k)] = sampleVol(phi, vol, cv.a0 + i * s, cv.b0 + j * s, cv.z0 + k * s) - mid;
+    for (let j = 0; j < cv.ny; j++) for (let i = 0; i < cv.nx; i++) coarse[volIndex(cv, i, j, k)] = f(cv.a0 + i * s, cv.b0 + j * s, cv.z0 + k * s);
   const m = polygonizeVol(coarse, cv, (a, b, z) => [a, b, z]);
-  // weld close vertices (no slivers), then relax on the mid-surface
+  // weld close vertices (no slivers), then relax on the surface
   const P = Array.from({ length: m.positions.length / 3 }, (_, v) => [m.positions[3 * v], m.positions[3 * v + 1], m.positions[3 * v + 2]]);
   const rep = new Int32Array(P.length).map((_, v) => v);
   const find = (v: number): number => (rep[v] === v ? v : (rep[v] = find(rep[v])));
@@ -244,12 +258,6 @@ function upperLattice(I: ShoeBodyInput, vol: Vol, phi: Float32Array): Lattice {
     }
     triEdges.push(ks);
   }
-  const used = new Set<number>();
-  for (const ed of edges.values()) {
-    used.add(ed.p);
-    used.add(ed.q);
-  }
-  // relax: towards the neighbours' average, projected back onto the mid-surface
   const nbr = new Map<number, number[]>();
   for (const ed of edges.values()) {
     (nbr.get(ed.p) ?? nbr.set(ed.p, []).get(ed.p)!).push(ed.q);
@@ -257,12 +265,12 @@ function upperLattice(I: ShoeBodyInput, vol: Vol, phi: Float32Array): Lattice {
   }
   const project = (p: number[]) => {
     for (let it = 0; it < 4; it++) {
-      const f = sampleVol(phi, vol, p[0], p[1], p[2]) - mid;
-      const gr = gradVol(phi, vol, p[0], p[1], p[2]);
+      const v = f(p[0], p[1], p[2]);
+      const gr = gradOf(f, p);
       const g2 = gr[0] ** 2 + gr[1] ** 2 + gr[2] ** 2;
       if (g2 < 0.05) break; // (flat field: leave the point)
       // step towards the level set, at most half a cell
-      const k = Math.max(-0.5 * s, Math.min(0.5 * s, f / Math.sqrt(g2))) / Math.sqrt(g2);
+      const k = Math.max(-0.5 * s, Math.min(0.5 * s, v / Math.sqrt(g2))) / Math.sqrt(g2);
       p[0] -= k * gr[0];
       p[1] -= k * gr[1];
       p[2] -= k * gr[2];
@@ -270,8 +278,7 @@ function upperLattice(I: ShoeBodyInput, vol: Vol, phi: Float32Array): Lattice {
   };
   for (let it = 0; it < 4; it++) {
     const next = new Map<number, number[]>();
-    for (const v of used) {
-      const ns = nbr.get(v)!;
+    for (const [v, ns] of nbr) {
       const avg = [0, 0, 0];
       for (const n of ns) for (let k = 0; k < 3; k++) avg[k] += P[n][k] / ns.length;
       const p = [0.5 * P[v][0] + 0.5 * avg[0], 0.5 * P[v][1] + 0.5 * avg[1], 0.5 * P[v][2] + 0.5 * avg[2]];
@@ -282,7 +289,7 @@ function upperLattice(I: ShoeBodyInput, vol: Vol, phi: Float32Array): Lattice {
   }
   // diamond: drop the longest edge of each triangle (pairs of triangles become quads)
   const drop = new Set<string>();
-  if (I.pattern === 'diamond') {
+  if (pattern === 'diamond') {
     for (const ks of triEdges) {
       let best = ks[0], bl = -1;
       for (const k of ks) {
@@ -293,53 +300,174 @@ function upperLattice(I: ShoeBodyInput, vol: Vol, phi: Float32Array): Lattice {
       if (edges.get(best)!.tris === 2) drop.add(best);
     }
   }
-  // where the lattice goes: inside the shell, outside the solid bands (with a little overlap so
-  // the struts are anchored in them), not in the sole interior
+  return { P, edges: [...edges].filter(([k]) => !drop.has(k)).map(([, e]) => [e.p, e.q] as [number, number]) };
+}
+
+/** Nearest-point lookup on a uniform hash (frame coordinates). */
+function pointHash(pts: number[][], cell: number) {
+  const key = (i: number, j: number, k: number) => `${i},${j},${k}`;
+  const map = new Map<string, number[]>();
+  pts.forEach((p, n) => {
+    const kk = key(Math.floor(p[0] / cell), Math.floor(p[1] / cell), Math.floor(p[2] / cell));
+    (map.get(kk) ?? map.set(kk, []).get(kk)!).push(n);
+  });
+  return (p: number[], maxD: number, ok: (n: number) => boolean = () => true) => {
+    let best = -1, bd = maxD;
+    const ci = Math.floor(p[0] / cell), cj = Math.floor(p[1] / cell), ck = Math.floor(p[2] / cell), R = Math.ceil(maxD / cell);
+    for (let i = ci - R; i <= ci + R; i++)
+      for (let j = cj - R; j <= cj + R; j++)
+        for (let k = ck - R; k <= ck + R; k++)
+          for (const n of map.get(key(i, j, k)) ?? []) {
+            const d = Math.hypot(pts[n][0] - p[0], pts[n][1] - p[1], pts[n][2] - p[2]);
+            if (d < bd && ok(n)) [bd, best] = [d, n];
+          }
+    return best;
+  };
+}
+
+/**
+ * Lattice finish, two separate strut networks joined into one piece:
+ *
+ *  - outer shell: ONE continuous lattice over the upper, the sole side wall and the footbed. Upper
+ *    and side wall are a single net on the shell's mid-surface, from the collar down to the
+ *    outsole (no seam on the outside); the footbed is a sheet across the inside, its edge anchored
+ *    in the shell's inner face. Double skin: inner + outer struts (flush with the shell's faces)
+ *    braced by diagonals.
+ *  - midsole: a conformal tetrahedral lattice filling the space between the footbed, the side wall
+ *    and the outsole, with its own cell size and strut, stitched to the shell all round.
+ */
+function shellLattice(I: ShoeBodyInput, vol: Vol, outer: Field): { lattice: Lattice; footbedNodes: number[]; midsoleStart: number } {
+  const t = I.wall, r = I.radius, s = I.cell;
   const at = (f: Float32Array, a: number, b: number) => sampleGrid(I.g, f, a, b);
-  const inLattice = (p: number[]) => {
-    const [a, b, z] = p;
-    const cz = I.collarZ(a, b);
-    if (Number.isFinite(cz) && z > cz - I.collarBand + 1.5) return false;
-    const floorZ = I.sideWall === 'solid' ? I.sideTop(b) - 1.5 : at(I.plateTop, a, b) - 0.5;
-    if (z < floorZ) return false;
-    if (at(I.outlineSdf, a, b) < -I.soleWall - 1 && z < at(I.T, a, b) + 1) return false; // sole interior
-    return true;
-  };
-  // double: strut surfaces flush with the wall's two faces; single: one layer in the middle
+  const mid = t / 2;
+  // double: strut surfaces flush with the shell's two faces; single: one layer in the middle
   const off = I.skins === 'single' ? 0 : Math.max(0, mid - r - 0.05);
+  // footbed sheet: its top struts touch the footbed surface (the foot's clearance)
+  const Fz = new Float32Array(I.footbedTop.length);
+  for (let k = 0; k < Fz.length; k++) Fz[k] = I.footbedTop[k] - off - r - 0.05;
+  const fz = (a: number, b: number) => at(Fz, a, b);
+  const shell: Field = (a, b, z) => outer(a, b, z) + mid;
+  const collarOk = (p: number[]) => {
+    const cz = I.collarZ(p[0], p[1]);
+    return !(Number.isFinite(cz) && p[2] > cz - I.collarBand + 1.5);
+  };
+  const floorZ = (a: number, b: number) => (I.sideWall === 'solid' ? I.sideTop(b) - 1.5 : at(I.plateTop, a, b) - 0.5);
+
+  const pts: number[][] = []; // all lattice nodes, frame coordinates
   const out = emptyLattice();
-  const ids = new Map<number, [number, number]>();
-  const nodeOf = (v: number) => {
-    let id = ids.get(v);
-    if (!id) {
-      const p = P[v];
-      const gr = gradVol(phi, vol, p[0], p[1], p[2]);
-      const gl = Math.hypot(gr[0], gr[1], gr[2]) || 1;
-      const n = [gr[0] / gl, gr[1] / gl, gr[2] / gl];
-      out.nodes.push(...I.toWorld(p[0] - n[0] * off, p[1] - n[1] * off, p[2] - n[2] * off));
-      const inner = out.nodes.length / 3 - 1;
-      out.nodes.push(...I.toWorld(p[0] + n[0] * off, p[1] + n[1] * off, p[2] + n[2] * off));
-      id = [inner, inner + 1];
-      ids.set(v, id);
-    }
-    return id;
-  };
-  const strut = (p: number, q: number) => {
+  const strut = (p: number, q: number, rad = r) => {
     out.edges.push(p, q);
-    out.radii.push(r);
+    out.radii.push(rad);
   };
-  for (const [k, ed] of edges) {
-    if (drop.has(k)) continue;
-    if (!inLattice(P[ed.p]) || !inLattice(P[ed.q])) continue;
-    const [pi, po] = nodeOf(ed.p), [qi, qo] = nodeOf(ed.q);
-    strut(pi, qi);
+  type Skin = { c: number[]; inner: number; outer: number };
+  /** Lays a net's struts (inner + outer skin, diagonals) where `keep` allows; returns the skin nodes per vertex. */
+  const layNet = (f: Field, keep: (p: number[]) => boolean) => {
+    const net = surfaceNet(f, vol, s, I.pattern);
+    const skins = new Map<number, Skin>();
+    const nodeOf = (v: number) => {
+      let sk = skins.get(v);
+      if (!sk) {
+        const p = net.P[v];
+        const gr = gradOf(f, p);
+        const gl = Math.hypot(gr[0], gr[1], gr[2]) || 1;
+        const n = [gr[0] / gl, gr[1] / gl, gr[2] / gl]; // (outward of the region; inner = towards the foot / midsole)
+        pts.push([p[0] - n[0] * off, p[1] - n[1] * off, p[2] - n[2] * off]);
+        pts.push([p[0] + n[0] * off, p[1] + n[1] * off, p[2] + n[2] * off]);
+        sk = { c: p, inner: pts.length - 2, outer: pts.length - 1 };
+        skins.set(v, sk);
+      }
+      return sk;
+    };
+    const cut = new Set<number>(); // vertices with a struts removed by `keep` (the net's open edges)
+    for (const [p, q] of net.edges) {
+      if (!keep(net.P[p]) || !keep(net.P[q])) {
+        if (keep(net.P[p])) cut.add(p);
+        if (keep(net.P[q])) cut.add(q);
+        continue;
+      }
+      const a = nodeOf(p), b = nodeOf(q);
+      strut(a.inner, b.inner);
+      if (off > 0.5) {
+        strut(a.outer, b.outer);
+        strut(a.inner, b.outer);
+        strut(b.inner, a.outer);
+      }
+    }
+    return { skins, cut };
+  };
+
+  // 1. outer shell: upper + sole side wall – ONE net on the shell's mid-surface, collar to outsole
+  //    (no seam anywhere on the outside)
+  const keepOuter = (p: number[]) => {
+    const [a, b, z] = p;
+    if (!collarOk(p) || z < floorZ(a, b)) return false;
+    // (not the shell's underside, which lies in the outsole plate)
+    return z > fz(a, b) || at(I.outlineSdf, a, b) > -2.5 - mid - 0.6 * s;
+  };
+  const outerNet = layNet(shell, keepOuter);
+  const outerSkins = [...outerNet.skins.values()];
+  // 2. footbed: a sheet across the inside of the shell, its edge anchored in the shell's inner face
+  const bed = layNet((a, b, z) => fz(a, b) - z, (p) => Math.abs(p[2] - fz(p[0], p[1])) < 0.5 * s && shell(p[0], p[1], p[2]) < -0.35 * s);
+  // (only the sheet: the volume's border closes the plane's level set elsewhere)
+  const nearOuter = pointHash(outerSkins.map((k) => k.c), s);
+  for (const v of bed.cut) {
+    const sk = bed.skins.get(v);
+    if (!sk) continue;
+    const n = nearOuter(sk.c, 1.4 * s);
+    if (n < 0) continue;
+    const o = outerSkins[n];
+    strut(sk.inner, o.inner);
     if (off > 0.5) {
-      strut(po, qo);
-      strut(pi, qo);
-      strut(qi, po);
+      strut(sk.outer, o.inner);
+      strut(sk.inner, o.outer);
+      strut(sk.outer, o.outer);
     }
   }
-  return dropSmallPieces(out, 30);
+  const footbedNodes: number[] = [], bedFacing: number[] = [], sideFacing: number[] = [];
+  for (const sk of bed.skins.values()) {
+    footbedNodes.push(sk.inner); // (top: faces the foot)
+    bedFacing.push(sk.outer); // (underside: faces the midsole)
+  }
+  for (const sk of outerSkins) if (sk.c[2] < fz(sk.c[0], sk.c[1])) sideFacing.push(sk.inner);
+
+  // 3. midsole: its own lattice between the outsole plate and the footbed sheet, inside the side wall
+  const rm = I.midsoleRadius, sm = I.midsoleCell;
+  const g = I.g;
+  const upper = new Float32Array(Fz.length), lower = I.plateTop;
+  const stacks: number[] = [];
+  for (let k = 0; k < Fz.length; k++) {
+    upper[k] = Fz[k] - off - r - rm;
+    if (I.outlineSdf[k] < -2.5 - t - sm) stacks.push(upper[k] - lower[k]);
+  }
+  stacks.sort((x, y) => x - y);
+  const stack = stacks[stacks.length >> 1] ?? 0;
+  const layers = Math.max(1, Math.min(8, Math.round(stack / (0.82 * sm))));
+  const inset = I.sideWall === 'lattice' ? 2.5 + mid + off + r + rm + 0.3 : I.soleWall + rm;
+  const ms = conformalLattice({ grid: g, lower, upper, cell: sm, radius: rm, layers, toWorld: (a, b, z) => [a, b, z], inside: (a, b) => at(I.outlineSdf, a, b) < -inset });
+  const m0 = pts.length;
+  for (let v = 0; v < ms.nodes.length / 3; v++) pts.push([ms.nodes[3 * v], ms.nodes[3 * v + 1], ms.nodes[3 * v + 2]]);
+  for (let e = 0; e < ms.edges.length; e += 2) strut(m0 + ms.edges[e], m0 + ms.edges[e + 1], rm);
+  // stitch: top layer up to the footbed's underside, the outermost nodes out to the side wall
+  const facing = [...bedFacing, ...sideFacing];
+  const nearF = pointHash(facing.map((n) => pts[n]), Math.max(s, sm));
+  const reach = 0.85 * Math.max(s, sm);
+  const linked = new Set<number>();
+  const top = new Set(ms.topNodes);
+  for (let v = 0; v < ms.nodes.length / 3; v++) {
+    const p = pts[m0 + v];
+    const outline = at(I.outlineSdf, p[0], p[1]);
+    if (!top.has(v) && outline < -inset - 0.75 * sm) continue; // (interior nodes)
+    const n = nearF(p, reach, (k) => !linked.has(facing[k]) || top.has(v));
+    if (n < 0) continue;
+    linked.add(facing[n]);
+    strut(m0 + v, facing[n], rm);
+  }
+
+  // → world coordinates
+  for (const p of pts) out.nodes.push(...I.toWorld(p[0], p[1], p[2]));
+  const kept = dropSmallPieces(out, 30);
+  const used = new Set(kept.edges);
+  return { lattice: kept, footbedNodes: footbedNodes.filter((n) => used.has(n)), midsoleStart: m0 };
 }
 
 /** Removes lattice pieces with fewer than `min` struts (loose fragments that would print as debris). */

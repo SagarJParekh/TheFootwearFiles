@@ -773,7 +773,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   appendLattice(lattice, midsole); // first: node ids unchanged
 
   // Lattice side wall option: a triangulated cage just inside the outline (anchored in the plate).
-  const cageStart = lattice.nodes.length / 3;
+  let cageStart = lattice.nodes.length / 3;
   if (p.sideWall === 'lattice' && p.kind !== 'shoe') appendLattice(lattice, sideCage(g, outlineSdf, plateTop, rimTop, p.cellSize, r, toWorld));
 
   if (foot.dorsumEstimated) {
@@ -811,7 +811,8 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   };
   const strapSolids: number[] = [];
   let postSolid = -1;
-  let upperStart = -1;
+  let upperStart = -1, upperEnd = Infinity;
+  let shoeFootbed: number[] | null = null;
   const collarEdges = new Set<number>();
 
   /**
@@ -991,6 +992,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       collarZ, sideTop: rimZ, clearance: c, wall: p.shoe.wall, toeAllowance: p.toeAllowance, bBall: bMT,
       voxel: Math.max(det.fuseVoxel, p.detail === 'standard' ? 1 : 0.7), finish: p.shoe.finish, sideWall: p.sideWall, collarBand: p.shoe.collarDiameter,
       soleWall: wall, cell: p.cellSize, radius: r, pattern: p.upperPattern, skins: p.shoe.skins, toWorld,
+      footbedTop: topSurface, midsoleCell: p.shoe.midsoleCell, midsoleRadius: p.shoe.midsoleStrut / 2,
     });
     // the body replaces the separate sole plate and rim
     const skinMesh = skinSolid >= 0 ? solids[skinSolid] : null;
@@ -1001,13 +1003,33 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       skinSolid = solids.length;
       solids.push(skinMesh);
     }
-    if (p.shoe.finish === 'solid') {
-      lattice.nodes.length = 0;
-      lattice.edges.length = 0;
-      lattice.radii.length = 0;
-    } else {
-      upperStart = lattice.nodes.length / 3;
+    // (the shoe's lattice – continuous shell + its own midsole – replaces the generic midsole)
+    lattice.nodes.length = 0;
+    lattice.edges.length = 0;
+    lattice.radii.length = 0;
+    cageStart = 0;
+    if (p.shoe.finish === 'lattice') {
+      upperStart = 0;
+      upperEnd = shoeBody.midsoleStart;
       appendLattice(lattice, shoeBody.lattice);
+      shoeFootbed = shoeBody.footbedNodes;
+      // footbed struts against the scan itself (as for the midsole above): under the foot the top
+      // nodes sit exactly at the clearance, elsewhere they only move down if too close; the
+      // node below (the sheet's underside, next in the list) moves with them
+      const Nn = lattice.nodes, rr = p.strutDiameter / 2;
+      const target = skinOn ? c + SKIN - 0.3 : c;
+      for (const v of shoeFootbed) {
+        const [a, b] = worldToFrame(frame, Nn[3 * v], Nn[3 * v + 1]);
+        const under = at(foot.lowSilhouetteSdf, a, b) < -4;
+        for (let it = 0; it < 6; it++) {
+          const gap = scanProbe(Nn[3 * v], Nn[3 * v + 1], Nn[3 * v + 2]).gap - rr;
+          const tooClose = gap < target - 0.02, tooFar = !skinOn && under && gap > c + 0.05;
+          if (!tooClose && !tooFar) break;
+          const dz = Math.max(-3, Math.min(3, (gap - target) * (tooClose ? 1.05 : 0.9)));
+          Nn[3 * v + 2] += dz;
+          Nn[3 * v + 5] += dz;
+        }
+      }
     }
   }
 
@@ -1061,7 +1083,11 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       fMax = Math.max(fMax, gap);
     }
   } else {
-    for (const v of underFoot) {
+    for (const v of shoeFootbed ?? underFoot) {
+      if (shoeFootbed) {
+        const [a, b] = worldToFrame(frame, lattice.nodes[3 * v], lattice.nodes[3 * v + 1]);
+        if (at(foot.lowSilhouetteSdf, a, b) >= -8) continue; // (where the foot rests)
+      }
       if (!nodeR[v]) continue;
       const gap = nodeGap(v);
       fMin = Math.min(fMin, gap);
@@ -1073,7 +1099,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   for (let v = 0; v < nodeR.length; v++) if (nodeR[v] > 0) gMin = Math.min(gMin, nodeGap(v));
   let uMin = Infinity, uMax = -Infinity;
   if (upperStart >= 0) {
-    for (let v = upperStart; v < nodeR.length; v++) {
+    for (let v = upperStart; v < Math.min(upperEnd, nodeR.length); v++) {
       if (!nodeR[v]) continue;
       const gap = nodeGap(v);
       uMin = Math.min(uMin, gap);

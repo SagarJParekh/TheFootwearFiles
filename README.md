@@ -244,19 +244,21 @@ Straps and wings can be **solid** (smooth, pillow edges) or a **lattice panel**:
 - Everything is one signed distance field on a voxel grid (1 / 0.7 mm), meshed with marching tetrahedra as one watertight surface.
 - **Two steps in the panel.**
   - **Step 1 · Design the solid shoe.** Set the fit (clearance, toe room), the sole (thickness, outsole, toe spring, side height, tread) and the upper (wall thickness, collar height, throat, collar gap below the malleoli), all on the smooth solid.
-  - **Step 2 · Convert to lattice** (a switch at the end). The shape stays the same, and the panel then asks for the lattice settings:
-    - strut thickness (rule 1.2–1.8 mm)
-    - cell size
-    - pattern (grid / diamond)
-    - lattice layers (*double skin, braced*: struts flush with both faces of the wall plus crossing diagonals; or *single skin*: one layer in the middle of the wall)
-    - lattice layer thickness (= the upper wall)
+  - **Step 2 · Convert to lattice** (a switch at the end). The shape stays the same, and the panel then asks for the settings of two separate lattices:
+    - **Outer shell lattice:** the upper, the footbed and the sole side wall as **one continuous lattice**. Upper and side wall are a single strut net on the shell's mid-surface, from the collar down to the outsole, with no seam on the outside. The footbed is a sheet across the inside, anchored in the shell's inner face, with its top struts at the clearance to the foot. Its settings:
+      - strut thickness (rule 1.2–1.8 mm)
+      - cell size
+      - pattern (grid / diamond)
+      - lattice layers (*double skin, braced*: struts flush with both faces of the shell plus crossing diagonals; or *single skin*: one layer)
+      - shell thickness (= the upper wall)
+      - sole side wall (part of the shell lattice, or a solid band)
+    - **Midsole lattice:** a 3D (conformal tetrahedral) lattice filling the space between the footbed, the side wall and the outsole. It is tied to the shell all round. It has its own density: *midsole cell size* (4–14 mm, default 7; smaller is denser and firmer) and *midsole strut thickness* (1.2–1.8 mm).
 
     It also asks what stays solid:
-    - the sole side wall (solid band up to the side height, or lattice)
     - the collar rim thickness (a solid band below the top edge)
     - an optional 1.2 mm solid footbed skin
 
-    A summary in the panel says what stays solid, what becomes lattice and the strut count. The outsole always stays solid. The upper wall becomes the strut lattice over the whole closed shell, heel and toes included. The sole interior becomes the 3D midsole lattice under the footbed. Loose fragments under 30 struts are dropped.
+    A summary in the panel says what stays solid, what becomes lattice and the strut count. The outsole always stays solid. Loose fragments under 30 struts are dropped. The lattice is one connected piece (checked in the tests).
 - **Collar below the ankle bones:** the **medial (MM) and lateral (LM) malleolus** landmarks are listed on every scan type. When you choose **Footwear** and they are missing, the app asks for them straight away: a banner over the 3D view says which one to click, placing MM moves on to LM, and then it stops. *Later* skips this. The Footwear panel shows their status, with a **Place MM and LM now** button. With them placed, the collar line is capped so the top of the collar rim stays **5 mm below each malleolus** (setting: *Collar rim below the malleoli*, 3–15 mm). The cap is flat under each bone (±18 mm along the foot) and then rises smoothly, so the rim doesn't pinch the skin. It is checked on the result as a design rule (*Collar rim at least 5 mm below the malleoli*, the vertical gap on each bone's side). Until they are placed, the panel asks for them. Each side of the collar follows its own malleolus; they blend across the back of the heel.
 
 **Full scans that are open** (cut above the ankle, scanner holes): the straps and upper use the scanned top of the foot. Columns of the ankle/leg are recognised (scan above 90 mm, or open at the top) and treated as solid up to the top. A hole in the sole can't raise the footbed, because the plantar surface may rise at most 1.2 mm per mm. For the clearance checks the holes are closed with smooth patches first, because next to an open edge the inside/outside test is unreliable.
@@ -271,8 +273,9 @@ Straps and wings can be **solid** (smooth, pillow edges) or a **lattice panel**:
 | Footbed clearance to the foot | 1–2 mm | 1.5 |
 | Lattice strut diameter | 1.2–1.8 mm | 1.5 |
 | Lattice cell size | 4–10 mm | 6 |
+| Shoe midsole lattice: cell size / strut | 4–14 mm / 1.2–1.8 mm | 7 / 1.5 |
 | Smooth footbed skin | on/off | off |
-| Sole thickness (thinnest point) / outsole | 8–35 / 1.5–4 mm | 12 (chappal), 10 (shoe) / 2.5 |
+| Sole thickness (thinnest point) / outsole | 8–35 / 1.5–4 mm | 10 (chappal), 12 (shoe: room for the footbed sheet and the midsole lattice) / 2.5 |
 | Rim height (heel) / rim wall | 0–25 / 1.5–8 mm | 10 (chappal), 8 (shoe) / 2.5 |
 | Sole side wall | solid / lattice | solid (chappal), lattice (shoe) |
 | Toe spring, toe allowance | 0–15, 0–20 mm | kind-specific |

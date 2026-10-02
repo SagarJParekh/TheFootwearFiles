@@ -21,7 +21,7 @@ function Slider(props: { label: string; range: (typeof R)[keyof typeof R]; value
 
 const KIND_INFO: Record<FootwearKind, { title: string; sub: string }> = {
   chappal: { title: 'Chappal', sub: 'Slides & thongs · lattice footbed' },
-  shoe: { title: 'Shoe', sub: 'Double-skin lattice upper' },
+  shoe: { title: 'Shoe', sub: 'Solid design · lattice shell + midsole' },
 };
 
 /**
@@ -100,28 +100,33 @@ function ShoeDesign({ p, landmarksOk, struts }: { p: FootwearParams; landmarksOk
         </div>
       ) : (
         <div className="rule-box" data-testid="fw-lattice-settings">
-          <div className="field-group-label">Lattice settings</div>
+          <div className="field-group-label">Outer shell lattice · upper, footbed and sole side wall (one piece)</div>
           <Slider label={`Strut thickness (diameter, rule ${FOOTWEAR_RULES.strutDiameter.min}–${FOOTWEAR_RULES.strutDiameter.max})`} range={R.strutDiameter} value={p.strutDiameter} set={(q, v) => ({ ...q, strutDiameter: v })} testId="fw-strut" />
           <Slider label="Cell size (strut length)" range={R.cellSize} value={p.cellSize} set={(q, v) => ({ ...q, cellSize: v })} testId="fw-cell" />
           <SelectField<UpperPattern> label="Pattern" value={p.upperPattern} options={UPPER_PATTERN_LABEL} onChange={(v) => set('Lattice pattern', (q) => ({ ...q, upperPattern: v }))} testId="fw-pattern" />
           <SelectField<LatticeSkins> label="Lattice layers" value={p.shoe.skins} options={LATTICE_SKINS_LABEL} onChange={(v) => set('Lattice layers', (q) => ({ ...q, shoe: { ...q.shoe, skins: v } }))} testId="fw-skins" />
-          <Slider label="Lattice layer thickness (= upper wall)" range={R.shoeWall} value={p.shoe.wall} set={(q, v) => ({ ...q, shoe: { ...q.shoe, wall: v } })} />
+          <Slider label="Shell thickness (= upper wall)" range={R.shoeWall} value={p.shoe.wall} set={(q, v) => ({ ...q, shoe: { ...q.shoe, wall: v } })} />
+          <SelectField<SideWall> label="Sole side wall" value={p.sideWall} options={SHOE_SIDE_WALL_LABEL} onChange={(v) => set('Sole side wall', (q) => ({ ...q, sideWall: v }))} testId="fw-sidewall" />
+          <div className="field-group-label">Midsole lattice · between footbed, side wall and outsole</div>
+          <Slider label="Midsole cell size (smaller = denser, firmer)" range={R.midsoleCell} value={p.shoe.midsoleCell} set={(q, v) => ({ ...q, shoe: { ...q.shoe, midsoleCell: v } })} testId="fw-midsole-cell" />
+          <Slider label="Midsole strut thickness" range={R.strutDiameter} value={p.shoe.midsoleStrut} set={(q, v) => ({ ...q, shoe: { ...q.shoe, midsoleStrut: v } })} testId="fw-midsole-strut" />
           <div className="field-group-label">What stays solid</div>
-          <SelectField<SideWall> label="Sole side wall" value={p.sideWall} options={SIDE_WALL_LABEL} onChange={(v) => set('Sole side wall', (q) => ({ ...q, sideWall: v }))} testId="fw-sidewall" />
           <Slider label="Collar rim thickness (solid band below the top edge)" range={R.collarDiameter} value={p.shoe.collarDiameter} set={(q, v) => ({ ...q, shoe: { ...q.shoe, collarDiameter: v } })} testId="fw-collar-band" />
           <Field label="Footbed: smooth solid skin over the lattice" right={<Switch checked={p.footbedSkin} onChange={(v) => set('Footbed skin', (q) => ({ ...q, footbedSkin: v }))} testId="fw-skin" />} />
           <div className="field-group-label">What the conversion does</div>
           <ul className="hint convert-summary" data-testid="fw-convert-summary">
             <li><b>Stays solid:</b> the outsole ({p.outsoleThickness} mm, with the tread){p.sideWall === 'solid' ? `, the sole side wall up to ${p.rimHeight} mm above the footbed edge` : ''}, and a {p.shoe.collarDiameter} mm collar rim band along the top edge{p.footbedSkin ? ', and a 1.2 mm footbed skin' : ''}.</li>
-            <li><b>Upper wall → lattice:</b> {p.shoe.skins === 'double' ? 'two layers of struts (flush with the inner and outer face of the wall), braced by crossing diagonals' : 'one layer of struts in the middle of the wall'}, {p.upperPattern === 'diamond' ? 'diamond' : 'triangle'} pattern, about {p.cellSize} mm per strut, covering the whole shell – heel and toe included.</li>
-            <li><b>Sole interior → lattice:</b> a 3D lattice between the outsole and the footbed{p.footbedSkin ? '' : '; its top layer is the footbed, at the clearance to the foot'}.</li>
-            <li><b>Unchanged:</b> the shape, fit and clearance designed above. Every strut is {p.strutDiameter} mm thick (rule {FOOTWEAR_RULES.strutDiameter.min}–{FOOTWEAR_RULES.strutDiameter.max} mm){struts ? ` · ${struts.toLocaleString()} struts` : ''}.</li>
+            <li><b>Outer shell → one continuous lattice:</b> the upper{p.sideWall === 'lattice' ? ', the sole side wall' : ''} and the footbed, {p.shoe.skins === 'double' ? 'two layers of struts (flush with the inner and outer face of the shell), braced by crossing diagonals' : 'one layer of struts'}, {p.upperPattern === 'diamond' ? 'diamond' : 'triangle'} pattern, about {p.cellSize} mm per strut. One net runs from the collar down to the outsole with no seam; the footbed sheet is anchored in it from the inside and sits at the clearance to the foot.</li>
+            <li><b>Midsole → its own lattice:</b> a 3D lattice filling the space between the footbed, the side wall and the outsole, {p.shoe.midsoleCell} mm cells, {p.shoe.midsoleStrut} mm struts, tied to the shell all round.</li>
+            <li><b>Unchanged:</b> the shape, fit and clearance designed above (rule {FOOTWEAR_RULES.strutDiameter.min}–{FOOTWEAR_RULES.strutDiameter.max} mm struts){struts ? ` · ${struts.toLocaleString()} struts` : ''}.</li>
           </ul>
         </div>
       )}
     </>
   );
 }
+
+const SHOE_SIDE_WALL_LABEL: Record<SideWall, string> = { lattice: 'Lattice (part of the shell)', solid: 'Solid band' };
 
 /** Sections 2b–4 of the designer when the "Footwear" category is chosen. */
 export function FootwearPanel({ ready }: { ready: boolean }) {
