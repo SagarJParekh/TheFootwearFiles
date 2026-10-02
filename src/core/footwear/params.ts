@@ -20,7 +20,9 @@ export type LatticeSkins = 'double' | 'single';
 /** Chappal straps / wings: a smooth solid sheet, or an open lattice panel with a solid border. */
 export type StrapPattern = 'solid' | 'lattice';
 /** Shoe upper lattice: triangulated grid, or diamonds (a knit look). */
-export type UpperPattern = 'grid' | 'diamond';
+export type UpperPattern = 'grid' | 'diamond' | 'voronoi';
+/** Midsole / footbed 3D lattice: regular tetrahedral, or Voronoi (organic open cells). */
+export type SolePattern = 'tetra' | 'voronoi';
 /** Presets modelled on the team's reference designs (see REFERENCE_DESIGNS). */
 export type DesignId = 'custom' | 'classicSlide' | 'latticeSlide' | 'sleekSlide' | 'splitToeThong' | 'latticeThong' | 'latticeSneaker' | 'knitSlipOn';
 
@@ -68,6 +70,8 @@ export interface FootwearParams {
   strapPattern: StrapPattern;
   /** Shoe upper lattice pattern. */
   upperPattern: UpperPattern;
+  /** Midsole (chappal footbed, shoe midsole) lattice type. */
+  solePattern: SolePattern;
   /** Thong / split-toe: width of each strap wing where it grows out of the sole wall (mm). */
   thongArmWidth: number;
   /**
@@ -143,6 +147,7 @@ export function defaultFootwearParams(shoeSizeUK = 8, kind: FootwearKind = 'chap
     strap: { width: 75, thickness: 3, position: 0.66 },
     strapPattern: 'solid',
     upperPattern: 'grid',
+    solePattern: 'tetra',
     thongArmWidth: 55,
     shoe: { collarHeight: 55, throat: 0.45, collarDiameter: 5, malleolusGap: 5, wall: 4, finish: 'solid', skins: 'double', midsoleCell: 7, midsoleStrut: 1.5 },
   };
@@ -166,7 +171,8 @@ export function normalizeFootwearParams(raw: unknown): FootwearParams {
     smoothJoins: typeof r.smoothJoins === 'boolean' ? r.smoothJoins : d.smoothJoins,
     design: typeof r.design === 'string' && (r.design === 'custom' || r.design in REFERENCE_DESIGNS) ? (r.design as DesignId) : d.design,
     strapPattern: r.strapPattern === 'lattice' || r.strapPattern === 'solid' ? r.strapPattern : d.strapPattern,
-    upperPattern: r.upperPattern === 'diamond' || r.upperPattern === 'grid' ? r.upperPattern : d.upperPattern,
+    upperPattern: ['grid', 'diamond', 'voronoi'].includes(r.upperPattern) ? r.upperPattern : d.upperPattern,
+    solePattern: r.solePattern === 'voronoi' ? 'voronoi' : 'tetra',
     clearance: clampTo(r.clearance, R.clearance, d.clearance),
     strutDiameter: clampTo(r.strutDiameter, R.strutDiameter, d.strutDiameter),
     cellSize: clampTo(r.cellSize, R.cellSize, d.cellSize),
@@ -206,7 +212,8 @@ export const SIDE_WALL_LABEL: Record<SideWall, string> = { solid: 'Solid wall', 
 export const TREAD_LABEL: Record<TreadPattern, string> = { none: 'None', hexagon: 'Hexagon', diamond: 'Diamond', waves: 'Waves' };
 
 export const STRAP_PATTERN_LABEL: Record<StrapPattern, string> = { solid: 'Solid (smooth)', lattice: 'Lattice panel (open, solid border)' };
-export const UPPER_PATTERN_LABEL: Record<UpperPattern, string> = { grid: 'Grid (triangles, braced)', diamond: 'Diamond (knit look)' };
+export const UPPER_PATTERN_LABEL: Record<UpperPattern, string> = { grid: 'Grid (triangles, braced)', diamond: 'Diamond (knit look)', voronoi: 'Voronoi (organic cells)' };
+export const SOLE_PATTERN_LABEL: Record<SolePattern, string> = { tetra: 'Tetrahedral (regular)', voronoi: 'Voronoi (organic cells)' };
 
 /**
  * Reference designs: parameter sets modelled on the team's reference STLs (measured sole and rim

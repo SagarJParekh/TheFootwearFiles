@@ -36,6 +36,7 @@ import { FOOTWEAR_RULES, type FootwearKind, type FootwearParams } from './params
 import { MESH_DETAIL } from '../detail';
 import { fuseFootwear, type ImplicitSolid } from './fuse';
 import { buildShoeBody, type ShoeBody } from './shoeBody';
+import { sampleVol } from './volume';
 
 /** Per-scan data that doesn't depend on the design parameters (cached by the caller). */
 export interface FootData {
@@ -472,12 +473,13 @@ export function fuseFootwearSolids(foot: FootData, r: FootwearResult, clearance:
  * keepClear for a big implicit mesh: only vertices near the foot (over its silhouette, between
  * just below the sole and just above the top) are checked against the scan.
  */
-function keepClearNear(m: MeshData, foot: FootData, probe: ReturnType<typeof footProbe>, c: number): MeshData {
+function keepClearNear(m: MeshData, foot: FootData, probe: ReturnType<typeof footProbe>, c: number, clearBy?: (a: number, b: number, z: number) => boolean): MeshData {
   const { frame, grid: g } = foot.surface;
   const P = m.positions;
   for (let i = 0; i < P.length; i += 3) {
     const [a, b] = worldToFrame(frame, P[i], P[i + 1]);
     if (sampleGrid(g, foot.silhouetteSdf, a, b) > c + 3) continue;
+    if (clearBy?.(a, b, P[i + 2])) continue; // (clear by construction)
     const zb = sampleGrid(g, foot.bed, a, b), zt = sampleGrid(g, foot.top, a, b);
     if (Number.isFinite(zb) && P[i + 2] < zb - c - 3) continue;
     if (Number.isFinite(zt) && P[i + 2] > zt + c + 3) continue;
@@ -746,7 +748,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   const lattice = emptyLattice();
   const midsole = conformalLattice({
     // strut centres one radius below the footbed along its normal (exact on its steep edges)
-    grid: g, lower: plateTop, upper: sphericalErode(topSurface, g, r), cell: p.cellSize, radius: r, layers, toWorld,
+    grid: g, lower: plateTop, upper: sphericalErode(topSurface, g, r), cell: p.cellSize, radius: r, layers, toWorld, pattern: p.solePattern,
     inside: (a, b) => sampleGrid(g, outlineSdf, a, b) < -0.3,
   });
   // Check the footbed against the scan itself: nodes too close move straight down; under the foot
@@ -990,15 +992,20 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
     shoeBody = buildShoeBody({
       g, silhouetteSdf: foot.silhouetteSdf, bed: foot.bed, top: foot.top, legColumn: foot.legColumn, T, bottom: Btread, plateTop, outlineSdf,
       collarZ, sideTop: rimZ, clearance: c, wall: p.shoe.wall, toeAllowance: p.toeAllowance, bBall: bMT,
-      voxel: Math.max(det.fuseVoxel, p.detail === 'standard' ? 1 : 0.7), finish: p.shoe.finish, sideWall: p.sideWall, collarBand: p.shoe.collarDiameter,
+      voxel: { standard: 1, high: 0.8, ultra: 0.65 }[p.detail], finish: p.shoe.finish, sideWall: p.sideWall, collarBand: p.shoe.collarDiameter,
       soleWall: wall, cell: p.cellSize, radius: r, pattern: p.upperPattern, skins: p.shoe.skins, toWorld,
-      footbedTop: topSurface, midsoleCell: p.shoe.midsoleCell, midsoleRadius: p.shoe.midsoleStrut / 2,
+      footbedTop: topSurface, midsoleCell: p.shoe.midsoleCell, midsoleRadius: p.shoe.midsoleStrut / 2, midsolePattern: p.solePattern,
     });
     // the body replaces the separate sole plate and rim
     const skinMesh = skinSolid >= 0 ? solids[skinSolid] : null;
     solids.length = 0;
     heightSolids.length = 0;
-    solids.push(keepClearNear(shoeBody.solid, foot, scanProbe, c));
+    // (on a full scan, a vertex further from the voxelised foot than the clearance + a voxel's
+    // half-diagonal is clear by construction: only the others are checked against the scan; with
+    // an estimated dorsum the voxelised foot isn't the scan, so everything is checked)
+    const body = shoeBody, sure = c + 0.9 * body.vol.h + 0.1;
+    const clearBy = foot.dorsumEstimated ? undefined : (a: number, b: number, z: number) => sampleVol(body.footDist, body.vol, a, b, z) > sure;
+    solids.push(keepClearNear(body.solid, foot, scanProbe, c, clearBy));
     if (skinMesh) {
       skinSolid = solids.length;
       solids.push(skinMesh);
@@ -1075,7 +1082,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   } else if (p.kind === 'shoe' && p.shoe.finish === 'solid') {
     // solid shoe: the footbed is the cavity floor of the body (vertices on the top of the sole)
     const P = solids[0].positions;
-    for (let i = 0; i < P.length; i += 3) {
+    for (let i = 0; i < P.length; i += 12) { // (every 4th vertex: the refined mesh is dense)
       const [a, b] = worldToFrame(frame, P[i], P[i + 1]);
       if (at(foot.lowSilhouetteSdf, a, b) >= -8 || Math.abs(P[i + 2] - at(T, a, b)) > 0.3) continue;
       const gap = scanProbe(P[i], P[i + 1], P[i + 2]).gap;
@@ -1109,7 +1116,8 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
   solids.forEach((m, si) => {
     if (si === postSolid) return;
     const strap = strapSolids.includes(si);
-    for (let i = 0; i < m.positions.length; i += strap ? 3 : 9) {
+    const step = strap ? 3 : 9 * Math.max(1, Math.round(m.positions.length / 3 / 400000)); // (≈ 130k samples on dense meshes)
+    for (let i = 0; i < m.positions.length; i += step) {
       if (m.positions[i + 2] < minT - 3) continue;
       const gap = scanProbe(m.positions[i], m.positions[i + 1], m.positions[i + 2]).gap;
       gMin = Math.min(gMin, gap);
@@ -1144,6 +1152,7 @@ export function generateFootwear(foot: FootData, p: FootwearParams): FootwearRes
       let top = -Infinity;
       const P = solids[0].positions;
       for (let i = 0; i < P.length; i += 3) {
+        if (P[i + 2] <= top || P[i + 2] < mz - 60) continue;
         const [a, b] = worldToFrame(frame, P[i], P[i + 1]);
         if (Math.abs(b - mb) > 10) continue;
         const ext = rowExtent(poly, b), mid = ext ? (ext[0] + ext[1]) / 2 : 0;

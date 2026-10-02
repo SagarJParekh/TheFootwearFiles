@@ -22,12 +22,12 @@ export function mergeFootwear(wasm: ManifoldToplevel, parts: { solids: MeshData[
     // then once together: a single mixed batch re-processes the large meshes at every step.
     const solids = parts.solids.map((s) => make(s.positions, s.indices));
     const struts: ManifoldT[] = [];
-    // Struts only: adding joint polyhedra makes the boolean several times slower, and the
-    // struts already overlap at every node.
+    // Struts only (with their filleted ends): adding joint spheres makes the boolean several
+    // times slower, and the flared ends already overlap at every node.
     const l = parts.lattice, N = l.nodes;
     for (let e = 0; e < l.edges.length / 2; e++) {
       const p = l.edges[2 * e], q = l.edges[2 * e + 1];
-      const strut = latticeToMesh({ nodes: [...N.slice(3 * p, 3 * p + 3), ...N.slice(3 * q, 3 * q + 3)], edges: [0, 1], radii: [l.radii[e]] }, strutSides, false);
+      const strut = latticeToMesh({ nodes: [...N.slice(3 * p, 3 * p + 3), ...N.slice(3 * q, 3 * q + 3)], edges: [0, 1], radii: [l.radii[e]] }, strutSides, false, true);
       struts.push(make(strut.positions, strut.indices));
     }
     const solidUnion = Manifold.union(solids), strutUnion = Manifold.union(struts);

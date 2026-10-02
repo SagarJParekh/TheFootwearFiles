@@ -84,8 +84,10 @@ console.log('foot data', Date.now() - t0, 'ms at grid', H);
 for (const st of styles) {
   const isShoe = st.startsWith('shoe');
   const p = defaultFootwearParams(8, isShoe ? 'shoe' : 'chappal');
-  if (!isShoe) p.chappalStyle = st as ChappalStyle;
-  if (st === 'shoeLattice') p.shoe.finish = 'lattice';
+  if (!isShoe && !st.endsWith('Voronoi')) p.chappalStyle = st as ChappalStyle;
+  if (st.startsWith('shoeLattice')) p.shoe.finish = 'lattice';
+  if (st === 'shoeLatticeVoronoi') { p.upperPattern = 'voronoi'; p.solePattern = 'voronoi'; }
+  if (st === 'slideVoronoi') { p.chappalStyle = 'slide'; p.solePattern = 'voronoi'; }
   const t1 = Date.now();
   const r = generateFootwear(foot, p);
   console.log('  generate', Date.now() - t1, 'ms', r.mesh.indices.length / 3, 'tris');

@@ -92,6 +92,26 @@ export function sampleVol(field: Float32Array, v: Vol, a: number, b: number, z: 
   return (c00 * (1 - fy) + c10 * fy) * (1 - fz) + (c01 * (1 - fy) + c11 * fy) * fz;
 }
 
+/** Trilinear value and its (cell-wise exact) gradient at a point, in one lookup: [f, fa, fb, fz]. */
+export function sampleGradVol(field: Float32Array, v: Vol, a: number, b: number, z: number, out: number[]): number[] {
+  const x = Math.min(v.nx - 1.001, Math.max(0, (a - v.a0) / v.h));
+  const y = Math.min(v.ny - 1.001, Math.max(0, (b - v.b0) / v.h));
+  const w = Math.min(v.nz - 1.001, Math.max(0, (z - v.z0) / v.h));
+  const i = Math.floor(x), j = Math.floor(y), k = Math.floor(w);
+  const fx = x - i, fy = y - j, fz = w - k;
+  const q = volIndex(v, i, j, k), sx = 1, sy = v.nx, sz = v.nx * v.ny;
+  const g000 = field[q], g100 = field[q + sx], g010 = field[q + sy], g110 = field[q + sx + sy];
+  const g001 = field[q + sz], g101 = field[q + sx + sz], g011 = field[q + sy + sz], g111 = field[q + sx + sy + sz];
+  const c00 = g000 + (g100 - g000) * fx, c10 = g010 + (g110 - g010) * fx, c01 = g001 + (g101 - g001) * fx, c11 = g011 + (g111 - g011) * fx;
+  const c0 = c00 + (c10 - c00) * fy, c1 = c01 + (c11 - c01) * fy;
+  out[0] = c0 + (c1 - c0) * fz;
+  const dx0 = (g100 - g000) * (1 - fy) + (g110 - g010) * fy, dx1 = (g101 - g001) * (1 - fy) + (g111 - g011) * fy;
+  out[1] = (dx0 * (1 - fz) + dx1 * fz) / v.h;
+  out[2] = ((c10 - c00) * (1 - fz) + (c11 - c01) * fz) / v.h;
+  out[3] = (c1 - c0) / v.h;
+  return out;
+}
+
 /** Gradient by central differences of the trilinear field. */
 export function gradVol(field: Float32Array, v: Vol, a: number, b: number, z: number): [number, number, number] {
   const e = v.h * 0.5;
@@ -192,4 +212,87 @@ export function polygonizeVol(field: Float32Array, v: Vol, toWorld: (a: number, 
       }
   const m = weldSoup(out.subarray(0, used), 1e-5);
   return makeMesh(m.positions, m.indices);
+}
+
+/**
+ * Finer mesh of a level set: each triangle is split into four (edge midpoints), then the
+ * vertices are relaxed along the surface and projected back onto the zero level of `field`
+ * (Newton steps on the trilinear field). `levels` splits → 4^levels × the triangles, smoother
+ * than the voxel grid alone. Positions stay in the volume's (frame) coordinates.
+ */
+export function refineOnField(m: MeshData, field: Float32Array, v: Vol, levels = 1): MeshData {
+  let P = m.positions, I = m.indices;
+  for (let l = 0; l < levels; l++) {
+    const n0 = P.length / 3, nt = I.length / 3;
+    const mid = new Map<number, number>();
+    const Q = new Float32Array((n0 + (3 * nt) / 2 + nt) * 3); // (≤ one new vertex per edge)
+    Q.set(P);
+    let nv = n0;
+    const midOf = (a: number, b: number) => {
+      const key = a < b ? a * n0 + b : b * n0 + a;
+      let id = mid.get(key);
+      if (id === undefined) {
+        id = nv++;
+        for (let d = 0; d < 3; d++) Q[3 * id + d] = (P[3 * a + d] + P[3 * b + d]) / 2;
+        mid.set(key, id);
+      }
+      return id;
+    };
+    const J = new Uint32Array(I.length * 4);
+    for (let t = 0, o = 0; t < I.length; t += 3) {
+      const a = I[t], b = I[t + 1], c = I[t + 2];
+      const ab = midOf(a, b), bc = midOf(b, c), ca = midOf(c, a);
+      J.set([a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca], o);
+      o += 12;
+    }
+    P = Q.slice(0, nv * 3);
+    I = J;
+  }
+  // neighbours (CSR)
+  const n = P.length / 3;
+  const deg = new Uint32Array(n + 1);
+  for (let t = 0; t < I.length; t++) deg[I[t] + 1] += 2;
+  for (let a = 0; a < n; a++) deg[a + 1] += deg[a];
+  const adj = new Uint32Array(deg[n]), fill = deg.slice(0, n);
+  for (let t = 0; t < I.length; t += 3)
+    for (let e = 0; e < 3; e++) {
+      const a = I[t + e], b = I[t + ((e + 1) % 3)];
+      adj[fill[a]++] = b;
+      adj[fill[b]++] = a;
+    }
+  // relax (towards the neighbours' average; each neighbour counted twice, so plain mean) +
+  // project onto the zero level, three times (irons out the voxel steps)
+  const p = [0, 0, 0], fg = [0, 0, 0, 0];
+  for (let it = 0; it < 3; it++) {
+    const Q = P.slice();
+    for (let a = 0; a < n; a++) {
+      const k0 = deg[a], k1 = deg[a + 1];
+      let ax = 0, ay = 0, az = 0;
+      for (let k = k0; k < k1; k++) {
+        const b = adj[k];
+        ax += P[3 * b];
+        ay += P[3 * b + 1];
+        az += P[3 * b + 2];
+      }
+      const w = k1 > k0 ? 0.5 / (k1 - k0) : 0, s0 = k1 > k0 ? 0.5 : 1;
+      p[0] = s0 * P[3 * a] + w * ax;
+      p[1] = s0 * P[3 * a + 1] + w * ay;
+      p[2] = s0 * P[3 * a + 2] + w * az;
+      for (let s = 0; s < 3; s++) {
+        const [f, ga, gb, gz] = sampleGradVol(field, v, p[0], p[1], p[2], fg);
+        if (Math.abs(f) < 1e-3) break;
+        const g2 = ga * ga + gb * gb + gz * gz;
+        if (g2 < 1e-4) break;
+        const k = Math.max(-0.5 * v.h, Math.min(0.5 * v.h, f / Math.sqrt(g2))) / Math.sqrt(g2);
+        p[0] -= k * ga;
+        p[1] -= k * gb;
+        p[2] -= k * gz;
+      }
+      Q[3 * a] = p[0];
+      Q[3 * a + 1] = p[1];
+      Q[3 * a + 2] = p[2];
+    }
+    P = Q;
+  }
+  return makeMesh(P, I);
 }

@@ -241,22 +241,26 @@ Straps and wings can be **solid** (smooth, pillow edges) or a **lattice panel**:
 - **Inside:** the foot (voxelised from the scan, plus room in front of the toes) offset by the clearance and smoothed like a last. A morphological closing (16 mm) bridges the toes and hollows, and a blur rounds the toe box, with a little extra room there. It never comes closer to the foot than the clearance, so the heel fits snugly. Its floor is the contoured footbed.
 - **Outside:** the inside thickened by the upper wall (*Upper wall thickness*), blended smoothly into the sole block. The upper, midsole and sole are **one continuous piece** with no ledges, and the shoe is closed over the toes and around the heel.
 - **Opening:** everything above a smooth collar line is cut away with a rounded edge. The line has a heel tab, dips under the ankle bones, rises in a round U to the throat (45 % of the length by default), and closes over the instep in front of it.
-- Everything is one signed distance field on a voxel grid (1 / 0.7 mm), meshed with marching tetrahedra as one watertight surface.
+- Everything is one signed distance field on a voxel grid (1 / 0.8 / 0.65 mm for standard / high / ultra detail), meshed with marching tetrahedra as one watertight surface. That mesh is then refined 4×: every triangle is split in four, and the vertices are relaxed along the surface and projected back onto the exact level set. The result is about 4× the triangles and a smoother surface (about 5 million triangles on a real scan at standard detail).
 - **Two steps in the panel.**
   - **Step 1 · Design the solid shoe.** Set the fit (clearance, toe room), the sole (thickness, outsole, toe spring, side height, tread) and the upper (wall thickness, collar height, throat, collar gap below the malleoli), all on the smooth solid.
   - **Step 2 · Convert to lattice** (a switch at the end). The shape stays the same, and the panel then asks for the settings of two separate lattices:
     - **Outer shell lattice:** the upper, the footbed and the sole side wall as **one continuous lattice**. Upper and side wall are a single strut net on the shell's mid-surface, from the collar down to the outsole, with no seam on the outside. The footbed is a sheet across the inside, anchored in the shell's inner face, with its top struts at the clearance to the foot. Its settings:
       - strut thickness (rule 1.2–1.8 mm)
       - cell size
-      - pattern (grid / diamond)
+      - pattern (grid / diamond / **Voronoi**: organic open cells, the dual of the relaxed triangle net)
       - lattice layers (*double skin, braced*: struts flush with both faces of the shell plus crossing diagonals; or *single skin*: one layer)
       - shell thickness (= the upper wall)
       - sole side wall (part of the shell lattice, or a solid band)
-    - **Midsole lattice:** a 3D (conformal tetrahedral) lattice filling the space between the footbed, the side wall and the outsole. It is tied to the shell all round. It has its own density: *midsole cell size* (4–14 mm, default 7; smaller is denser and firmer) and *midsole strut thickness* (1.2–1.8 mm).
+    - **Midsole lattice:** a 3D (conformal tetrahedral) lattice filling the space between the footbed, the side wall and the outsole. It is tied to the shell all round. It has its own type (*tetrahedral* or *Voronoi*: per layer the Voronoi cells of jittered seeds, the layers offset and joined by slanted posts) and its own density: *midsole cell size* (4–14 mm, default 7; smaller is denser and firmer) and *midsole strut thickness* (1.2–1.8 mm).
 
     It also asks what stays solid:
     - the collar rim thickness (a solid band below the top edge)
     - an optional 1.2 mm solid footbed skin
+
+    **Collar transition:** the solid collar band has a rounded lower edge. Struts that reach it are not cut short below the band; they run into it and end at its mid-height, so every cell continues into the rim.
+
+    **Rounded lattice:** struts are round tubes (8 / 12 / 16 sides by mesh detail) that flare slightly at both ends, a fillet into the joint, and every node is a sphere (1.15 × the strut radius). The junctions are smooth knuckles, not facets. The merged export uses the filleted struts.
 
     A summary in the panel says what stays solid, what becomes lattice and the strut count. The outsole always stays solid. Loose fragments under 30 struts are dropped. The lattice is one connected piece (checked in the tests).
 - **Collar below the ankle bones:** the **medial (MM) and lateral (LM) malleolus** landmarks are listed on every scan type. When you choose **Footwear** and they are missing, the app asks for them straight away: a banner over the 3D view says which one to click, placing MM moves on to LM, and then it stops. *Later* skips this. The Footwear panel shows their status, with a **Place MM and LM now** button. With them placed, the collar line is capped so the top of the collar rim stays **5 mm below each malleolus** (setting: *Collar rim below the malleoli*, 3–15 mm). The cap is flat under each bone (±18 mm along the foot) and then rises smoothly, so the rim doesn't pinch the skin. It is checked on the result as a design rule (*Collar rim at least 5 mm below the malleoli*, the vertical gap on each bone's side). Until they are placed, the panel asks for them. Each side of the collar follows its own malleolus; they blend across the back of the heel.
@@ -273,6 +277,7 @@ Straps and wings can be **solid** (smooth, pillow edges) or a **lattice panel**:
 | Footbed clearance to the foot | 1–2 mm | 1.5 |
 | Lattice strut diameter | 1.2–1.8 mm | 1.5 |
 | Lattice cell size | 4–10 mm | 6 |
+| Lattice type (chappal footbed, shoe midsole) | tetrahedral / Voronoi | tetrahedral |
 | Shoe midsole lattice: cell size / strut | 4–14 mm / 1.2–1.8 mm | 7 / 1.5 |
 | Smooth footbed skin | on/off | off |
 | Sole thickness (thinnest point) / outsole | 8–35 / 1.5–4 mm | 10 (chappal), 12 (shoe: room for the footbed sheet and the midsole lattice) / 2.5 |
@@ -290,7 +295,7 @@ Straps and wings can be **solid** (smooth, pillow edges) or a **lattice panel**:
 
 The lattice (footbed, panels, upper) stays as struts. On a real scan it takes about 20–60 s and gives 1.5–4 million triangles, so switch it on when the design is final.
 
-**Mesh detail** (Finish & download): *Standard*, *High* or *Ultra*. It sets the surface grid of the sole, rim and footbed (1 / 0.5 / 0.35 mm), the roundness of the lattice struts (6 / 10 / 14 sides, also in the merged export) and the sampling of straps, wings and tubes (×1 / ×2 / ×3). On a real scan, *High* gives about 0.9–1.2 million triangles for the footwear and takes a few seconds longer.
+**Mesh detail** (Finish & download): *Standard*, *High* or *Ultra*. It sets the surface grid of the sole, rim and footbed (1 / 0.5 / 0.35 mm), the roundness of the lattice struts (8 / 12 / 16 sides, also in the merged export) and the sampling of straps, wings and tubes (×1 / ×2 / ×3). On a real scan, *High* gives about 0.9–1.2 million triangles for the footwear and takes a few seconds longer.
 
 **Download:**
 
@@ -458,7 +463,7 @@ src/
   - The insole walls are vertical; there is no flare or bevel yet.
 - **Footwear designer:**
   - The standard shapes are parametric (a sole spline, superellipse arches, swept arms), not a library of lasts. Strap and collar positions are fractions of the foot length. There is no heel height or drop yet; the sole is a flat base with toe spring.
-  - The lattice is a regular tetrahedral midsole plus a regular triangle net on the shoe upper. There are no Voronoi or graded patterns yet, and struts have a uniform diameter.
+  - Lattices are tetrahedral or Voronoi in the midsole, and a triangle, diamond or Voronoi net on the shoe shell. There are no graded patterns yet, and struts have a uniform diameter (apart from the small fillet at the joints).
   - The toe post of the thong styles assumes the 1st and 2nd toes are separated in the scan.
   - For sole-only scans the top of the foot is an estimate from typical proportions, not the patient's dorsum.
   - Names or logos embossed on the side wall (as in the photos) aren't supported yet.

@@ -16,16 +16,27 @@ const landmarks = () => ({ heelCentre: [...LM.heelCentre] as [number, number, nu
 
 /** Closed and consistently wound: every directed edge once, and its reverse once (what manifold-3d needs). */
 function consistent(m: { indices: Uint32Array }): boolean {
-  const dir = new Set<string>();
-  for (let t = 0; t < m.indices.length; t += 3)
-    for (let e = 0; e < 3; e++) {
-      const k = `${m.indices[t + e]},${m.indices[t + ((e + 1) % 3)]}`;
-      if (dir.has(k)) return false;
-      dir.add(k);
+  // (sorted numeric keys: a Set can't hold the edges of a multi-million-triangle mesh)
+  let n = 0;
+  for (const v of m.indices) n = Math.max(n, v + 1);
+  const keys = new Float64Array(m.indices.length);
+  for (let t = 0, q = 0; t < m.indices.length; t += 3)
+    for (let e = 0; e < 3; e++) keys[q++] = m.indices[t + e] * n + m.indices[t + ((e + 1) % 3)];
+  keys.sort();
+  const has = (k: number) => {
+    let lo = 0, hi = keys.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (keys[mid] === k) return true;
+      if (keys[mid] < k) lo = mid + 1;
+      else hi = mid - 1;
     }
-  for (const k of dir) {
-    const [a, b] = k.split(',');
-    if (!dir.has(`${b},${a}`)) return false;
+    return false;
+  };
+  for (let q = 0; q < keys.length; q++) {
+    if (q > 0 && keys[q] === keys[q - 1]) return false; // (a directed edge twice)
+    const a = Math.floor(keys[q] / n), b = keys[q] - a * n;
+    if (!has(b * n + a)) return false;
   }
   return true;
 }
@@ -328,6 +339,55 @@ describe('footwear generator', () => {
     const thick = gen((p) => { p.shoe.finish = 'lattice'; p.shoe.midsoleStrut = 1.8; }, 'shoe');
     expect(thick.strut).toEqual({ min: 1.5, max: 1.8 });
     for (const x of [dense, open, thick]) expect(x.rules.every((q) => q.ok), x.rules.map((q) => `${q.rule}: ${q.value}`).join(' | ')).toBe(true);
+  });
+
+  it('Voronoi lattice type: organic open cells on the shoe shell and in the midsole / chappal footbed, rules met', () => {
+    const tetra = gen((p) => (p.shoe.finish = 'lattice'), 'shoe');
+    const vor = gen((p) => { p.shoe.finish = 'lattice'; p.upperPattern = 'voronoi'; p.solePattern = 'voronoi'; }, 'shoe');
+    expect(vor.rules.every((x) => x.ok), vor.rules.map((x) => `${x.rule}: ${x.value}`).join(' | ')).toBe(true);
+    expect(vor.strutCount).not.toBe(tetra.strutCount);
+    // Voronoi nets: most shell nodes join 3 struts per skin (cell corners), unlike the triangle grid (6)
+    const degreeMode = (l: typeof vor.parts.lattice) => {
+      const deg = new Map<number, number>();
+      for (const v of l.edges) deg.set(v, (deg.get(v) ?? 0) + 1);
+      const hist = new Map<number, number>();
+      for (const d of deg.values()) hist.set(d, (hist.get(d) ?? 0) + 1);
+      return [...hist].sort((a, b) => b[1] - a[1])[0][0];
+    };
+    expect(degreeMode(vor.parts.lattice)).toBeLessThan(degreeMode(tetra.parts.lattice));
+    const slide = gen((p) => (p.solePattern = 'voronoi'));
+    expect(slide.strutCount).toBeGreaterThan(1000);
+    expect(slide.rules.every((x) => x.ok), slide.rules.map((x) => `${x.rule}: ${x.value}`).join(' | ')).toBe(true);
+    // every strut has a length (no degenerate struts) and every node is finite
+    for (const l of [vor.parts.lattice, slide.parts.lattice]) {
+      expect(l.nodes.every(Number.isFinite)).toBe(true);
+      for (let e = 0; e < l.edges.length; e += 2) {
+        const p = 3 * l.edges[e], q = 3 * l.edges[e + 1];
+        expect(Math.hypot(l.nodes[p] - l.nodes[q], l.nodes[p + 1] - l.nodes[q + 1], l.nodes[p + 2] - l.nodes[q + 2])).toBeGreaterThan(0.01);
+      }
+    }
+  });
+
+  it('rounded lattice mesh: filleted struts and sphere joints, closed and outward-facing', () => {
+    const l = { nodes: [0, 0, 0, 6, 0, 0, 3, 5, 0], edges: [0, 1, 1, 2, 2, 0], radii: [0.75, 0.75, 0.75] };
+    for (const sides of [8, 12]) {
+      const m = latticeToMesh(l, sides);
+      const st = analyzeMesh(m);
+      expect(st.boundaryEdgeCount).toBe(0);
+      expect(signedVolume(m)).toBeGreaterThan(0);
+      // fillet: wider than the strut at the ends, the strut radius in the middle
+      const one = latticeToMesh({ nodes: [0, 0, 0, 6, 0, 0], edges: [0, 1], radii: [0.75] }, sides, false, true);
+      expect(analyzeMesh(one).watertight).toBe(true);
+      let end = 0, mid = Infinity;
+      for (let v = 0; v < one.positions.length / 3; v++) {
+        const [x, y, z] = [one.positions[3 * v], one.positions[3 * v + 1], one.positions[3 * v + 2]];
+        if (Math.hypot(y, z) < 1e-6) continue; // (cap centres)
+        if (x < 0.01) end = Math.max(end, Math.hypot(y, z));
+        if (x > 0.6 && x < 5.4) mid = Math.min(mid, Math.hypot(y, z));
+      }
+      expect(end).toBeGreaterThan(0.8);
+      expect(mid).toBeCloseTo(0.75, 2);
+    }
   });
 
   it('side wall options and tread', () => {

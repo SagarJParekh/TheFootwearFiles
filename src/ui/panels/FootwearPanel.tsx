@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { UK_SIZES, insoleLengthMm } from '../../core/insole/params';
 import {
-  CHAPPAL_STYLE_LABEL, FOOTWEAR_RANGES as R, FOOTWEAR_RULES, REFERENCE_DESIGNS, SIDE_WALL_LABEL, STRAP_PATTERN_LABEL, TREAD_LABEL, UPPER_PATTERN_LABEL,
+  CHAPPAL_STYLE_LABEL, FOOTWEAR_RANGES as R, FOOTWEAR_RULES, REFERENCE_DESIGNS, SIDE_WALL_LABEL, STRAP_PATTERN_LABEL, TREAD_LABEL, UPPER_PATTERN_LABEL, SOLE_PATTERN_LABEL,
   LATTICE_SKINS_LABEL, type LatticeSkins,
-  type ChappalStyle, type DesignId, type FootwearKind, type FootwearParams, type SideWall, type StrapPattern, type TreadPattern, type UpperPattern,
+  type ChappalStyle, type DesignId, type FootwearKind, type FootwearParams, type SideWall, type StrapPattern, type TreadPattern, type UpperPattern, type SolePattern,
 } from '../../core/footwear/params';
 import { applyFootwearDesign, requestAnkleLandmarks, exportFootwearStl, footwearGesture, setFootwearEnabled, setFootwearKind, updateFootwear } from '../../state/footwearActions';
 import { useStore } from '../../state/store';
@@ -108,6 +108,7 @@ function ShoeDesign({ p, landmarksOk, struts }: { p: FootwearParams; landmarksOk
           <Slider label="Shell thickness (= upper wall)" range={R.shoeWall} value={p.shoe.wall} set={(q, v) => ({ ...q, shoe: { ...q.shoe, wall: v } })} />
           <SelectField<SideWall> label="Sole side wall" value={p.sideWall} options={SHOE_SIDE_WALL_LABEL} onChange={(v) => set('Sole side wall', (q) => ({ ...q, sideWall: v }))} testId="fw-sidewall" />
           <div className="field-group-label">Midsole lattice · between footbed, side wall and outsole</div>
+          <SelectField<SolePattern> label="Midsole lattice type" value={p.solePattern} options={SOLE_PATTERN_LABEL} onChange={(v) => set('Midsole lattice type', (q) => ({ ...q, solePattern: v }))} testId="fw-sole-pattern" />
           <Slider label="Midsole cell size (smaller = denser, firmer)" range={R.midsoleCell} value={p.shoe.midsoleCell} set={(q, v) => ({ ...q, shoe: { ...q.shoe, midsoleCell: v } })} testId="fw-midsole-cell" />
           <Slider label="Midsole strut thickness" range={R.strutDiameter} value={p.shoe.midsoleStrut} set={(q, v) => ({ ...q, shoe: { ...q.shoe, midsoleStrut: v } })} testId="fw-midsole-strut" />
           <div className="field-group-label">What stays solid</div>
@@ -116,8 +117,8 @@ function ShoeDesign({ p, landmarksOk, struts }: { p: FootwearParams; landmarksOk
           <div className="field-group-label">What the conversion does</div>
           <ul className="hint convert-summary" data-testid="fw-convert-summary">
             <li><b>Stays solid:</b> the outsole ({p.outsoleThickness} mm, with the tread){p.sideWall === 'solid' ? `, the sole side wall up to ${p.rimHeight} mm above the footbed edge` : ''}, and a {p.shoe.collarDiameter} mm collar rim band along the top edge{p.footbedSkin ? ', and a 1.2 mm footbed skin' : ''}.</li>
-            <li><b>Outer shell → one continuous lattice:</b> the upper{p.sideWall === 'lattice' ? ', the sole side wall' : ''} and the footbed, {p.shoe.skins === 'double' ? 'two layers of struts (flush with the inner and outer face of the shell), braced by crossing diagonals' : 'one layer of struts'}, {p.upperPattern === 'diamond' ? 'diamond' : 'triangle'} pattern, about {p.cellSize} mm per strut. One net runs from the collar down to the outsole with no seam; the footbed sheet is anchored in it from the inside and sits at the clearance to the foot.</li>
-            <li><b>Midsole → its own lattice:</b> a 3D lattice filling the space between the footbed, the side wall and the outsole, {p.shoe.midsoleCell} mm cells, {p.shoe.midsoleStrut} mm struts, tied to the shell all round.</li>
+            <li><b>Outer shell → one continuous lattice:</b> the upper{p.sideWall === 'lattice' ? ', the sole side wall' : ''} and the footbed, {p.shoe.skins === 'double' ? 'two layers of struts (flush with the inner and outer face of the shell), braced by crossing diagonals' : 'one layer of struts'}, {p.upperPattern === 'diamond' ? 'diamond' : p.upperPattern === 'voronoi' ? 'Voronoi (organic cell)' : 'triangle'} pattern, about {p.cellSize} mm per strut. One net runs from the collar down to the outsole with no seam; the footbed sheet is anchored in it from the inside and sits at the clearance to the foot.</li>
+            <li><b>Midsole → its own lattice:</b> a 3D {p.solePattern === 'voronoi' ? 'Voronoi' : 'tetrahedral'} lattice filling the space between the footbed, the side wall and the outsole, {p.shoe.midsoleCell} mm cells, {p.shoe.midsoleStrut} mm struts, tied to the shell all round.</li>
             <li><b>Unchanged:</b> the shape, fit and clearance designed above (rule {FOOTWEAR_RULES.strutDiameter.min}–{FOOTWEAR_RULES.strutDiameter.max} mm struts){struts ? ` · ${struts.toLocaleString()} struts` : ''}.</li>
           </ul>
         </div>
@@ -228,6 +229,7 @@ export function FootwearPanel({ ready }: { ready: boolean }) {
           <Slider label={`Footbed clearance to the foot (rule ${FOOTWEAR_RULES.clearance.min}–${FOOTWEAR_RULES.clearance.max})`} range={R.clearance} value={p.clearance} set={(q, v) => ({ ...q, clearance: v })} testId="fw-clearance" />
           <Slider label={`Lattice strut diameter (rule ${FOOTWEAR_RULES.strutDiameter.min}–${FOOTWEAR_RULES.strutDiameter.max})`} range={R.strutDiameter} value={p.strutDiameter} set={(q, v) => ({ ...q, strutDiameter: v })} testId="fw-strut" />
           <Slider label="Lattice cell size" range={R.cellSize} value={p.cellSize} set={(q, v) => ({ ...q, cellSize: v })} testId="fw-cell" />
+          <SelectField<SolePattern> label="Lattice type" value={p.solePattern} options={SOLE_PATTERN_LABEL} onChange={(v) => updateFootwear('Lattice type', (q) => ({ ...q, solePattern: v }))} testId="fw-sole-pattern" />
           <Field label="Smooth footbed skin (solid top)" right={<Switch checked={p.footbedSkin} onChange={(v) => updateFootwear('Footbed skin', (q) => ({ ...q, footbedSkin: v }))} testId="fw-skin" />} />
           <div className="field-group-label">Sole</div>
           <Slider label="Sole thickness (thinnest point)" range={R.soleThickness} value={p.soleThickness} set={(q, v) => ({ ...q, soleThickness: v })} testId="fw-sole" />

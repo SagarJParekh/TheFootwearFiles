@@ -119,6 +119,7 @@ try {
   s = await state();
   check(await page.isVisible('[data-testid=fw-lattice-settings]') && await page.isVisible('[data-testid=fw-convert-summary]'), 'convert to lattice: the lattice settings and what the conversion does are shown');
   check(await page.isVisible('[data-testid=fw-midsole-cell]') && await page.isVisible('[data-testid=fw-midsole-strut]'), 'lattice shoe: separate midsole density controls (cell size, strut)');
+  check((await page.locator('[data-testid=fw-pattern] option[value=voronoi]').count()) === 1 && (await page.locator('[data-testid=fw-sole-pattern] option[value=voronoi]').count()) === 1, 'lattice shoe: Voronoi offered for the shell and the midsole');
   const doubleStruts = s.struts;
   await page.selectOption('[data-testid=fw-skins]', 'single');
   await settle();
